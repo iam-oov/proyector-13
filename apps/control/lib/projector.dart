@@ -82,6 +82,33 @@ class ProjectorClient {
     if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
   }
 
+  /// Máscara de figura libre: polígonos normalizados 0..1. `save: false` para
+  /// las actualizaciones en vivo mientras se dibuja.
+  Future<void> mask({
+    required List<List<double>> shapes,
+    double feather = 0,
+    bool outline = false,
+    bool save = true,
+  }) async {
+    final r = await http
+        .post(
+          _url('/mask'),
+          headers: {'content-type': 'application/json', ..._auth},
+          body: jsonEncode({'shapes': shapes, 'feather': feather, 'outline': outline, 'save': save}),
+        )
+        .timeout(const Duration(seconds: 5));
+    if (r.statusCode == 401) throw const ProjectorUnauthorized();
+    if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
+  }
+
+  Future<void> clearMask() async {
+    final r = await http
+        .post(_url('/mask'), headers: {'content-type': 'application/json', ..._auth}, body: '{"clear":true}')
+        .timeout(const Duration(seconds: 5));
+    if (r.statusCode == 401) throw const ProjectorUnauthorized();
+    if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
+  }
+
   Future<void> play(VideoCandidate video) async {
     final r = await http
         .post(

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'model.dart';
 import 'now_page.dart';
 import 'playlists_page.dart';
+import 'mask_page.dart';
 import 'screens_sheet.dart';
 import 'search_page.dart';
 import 'trading_page.dart';
@@ -67,6 +68,13 @@ class _HomeShellState extends State<HomeShell> {
                   MaterialPageRoute<void>(builder: (_) => TradingPage(model: model)),
                 ),
                 icon: const Icon(Icons.candlestick_chart_outlined),
+              ),
+              IconButton(
+                tooltip: 'Máscara',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => MaskPage(model: model)),
+                ),
+                icon: const Icon(Icons.gesture),
               ),
               ScreenChip(model: model),
               if (model.loggedIn)

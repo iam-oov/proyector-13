@@ -8,16 +8,18 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_router/shelf_router.dart';
 
+import 'mask.dart';
 import 'player.dart';
 import 'state.dart';
 
 /// Servidor HTTP en la LAN. El teléfono manda `POST /play {"videoId": "..."}`
 /// con el token que viene en el QR (`Authorization: Bearer <token>`).
 class ReceiverServer {
-  ReceiverServer(this.state, {this.port = 8080, this.onTradingChanged});
+  ReceiverServer(this.state, {this.port = 8080, this.onTradingChanged, this.mask});
 
   final ReceiverState state;
   final int port;
+  final MaskController? mask;
 
   /// Se llama después de cada POST /trading (persistir, pedir precios).
   final Future<void> Function()? onTradingChanged;
@@ -28,7 +30,8 @@ class ReceiverServer {
       ..get('/health', _health)
       ..post('/pair', _auth(_pair))
       ..post('/play', _auth(_play))
-      ..post('/trading', _auth(_trading));
+      ..post('/trading', _auth(_trading))
+      ..post('/mask', _auth(_mask));
     final handler = const Pipeline().addMiddleware(_cors()).addHandler(router.call);
     await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
     state.listening(await _lanAddress() ?? '0.0.0.0', port);
@@ -109,6 +112,36 @@ class ReceiverServer {
     }
     await onTradingChanged?.call();
     return _json({'ok': true, 'panel': state.panel.name, 'trades': state.trades.length});
+  }
+
+  /// Máscara de figura libre: `{"shapes": [[x,y,…],…], "feather": 0.02, "outline": true}`
+  /// o `{"clear": true}`. Coordenadas normalizadas 0..1.
+  Future<Response> _mask(Request request) async {
+    final m = mask;
+    if (m == null) return _json({'ok': false, 'error': 'máscara no disponible'}, 500);
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (_) {
+      return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
+    }
+    try {
+      if (body['clear'] == true) {
+        await m.clear();
+      } else {
+        await m.apply(
+          shapes: parseShapes(body['shapes']),
+          feather: ((body['feather'] as num?)?.toDouble() ?? 0).clamp(0.0, 0.1),
+          outline: body['outline'] == true,
+          save: body['save'] != false,
+        );
+      }
+      return _json({'ok': true, 'active': m.active});
+    } on FormatException catch (e) {
+      return _json({'ok': false, 'error': e.message}, 400);
+    } catch (e) {
+      return _json({'ok': false, 'error': '$e'}, 500);
+    }
   }
 
   Future<Response> _play(Request request) async {

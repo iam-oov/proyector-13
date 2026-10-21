@@ -5,6 +5,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'home_screen.dart';
 import 'identity.dart';
+import 'mask.dart';
 import 'server.dart';
 import 'state.dart';
 import 'trading.dart';
@@ -24,7 +25,13 @@ Future<void> main() async {
   if (loadError != null) state.add('No pude guardar la identidad: $loadError', error: true);
   final trading = TradingController(state, await TradingStore.open());
   await trading.init();
-  ReceiverServer(state, onTradingChanged: trading.onChanged).start().catchError((Object e) {
+  MaskController? mask;
+  try {
+    mask = await MaskController.open();
+  } catch (e) {
+    state.add('Máscara no disponible: $e', error: true);
+  }
+  ReceiverServer(state, onTradingChanged: trading.onChanged, mask: mask).start().catchError((Object e) {
     state.add('No pude abrir el puerto ${state.port}: $e', error: true);
   });
   runApp(ProyectorApp(state: state));

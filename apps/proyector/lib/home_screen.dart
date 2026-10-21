@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'apps.dart';
@@ -47,19 +49,26 @@ class _HomeScreenState extends State<HomeScreen> {
     final text = Theme.of(context).textTheme;
     return Scaffold(
       body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 40),
+        padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 32),
         child: ListenableBuilder(
           listenable: state,
           builder: (context, _) => Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(state.identity.name, style: text.headlineMedium),
                   const Spacer(),
-                  Text(
-                    state.phones.isEmpty ? 'Nadie conectado' : 'Conectado: ${state.phones.join(', ')}',
-                    style: text.bodyMedium?.copyWith(color: Colors.white54),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      const ClockText(),
+                      Text(
+                        state.phones.isEmpty ? 'Nadie conectado' : 'Conectado: ${state.phones.join(', ')}',
+                        style: text.bodyMedium?.copyWith(color: Colors.white54),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -90,11 +99,19 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: const Color(0xFF2D2640),
                     onTap: () => state.showPanel(ReceiverPanel.qr),
                   ),
+                  // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
                   HomeTile(
                     label: 'Ajustes',
                     icon: const Icon(Icons.settings, size: 40),
                     color: const Color(0xFF2B2B2B),
                     onTap: () => _open(() => launchComponent('com.jixin.settings5', 'com.jixin.settings5.SettingsActivity')),
+                  ),
+                  // Los de Android TV: apps, cuentas, mandos, redes.
+                  HomeTile(
+                    label: 'Ajustes Android',
+                    icon: const Icon(Icons.tune, size: 40),
+                    color: const Color(0xFF2B2B2B),
+                    onTap: () => _open(() => launchComponent('com.android.tv.settings', 'com.android.tv.settings.MainSettings')),
                   ),
                 ],
               ),
@@ -109,7 +126,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (state.events.isEmpty)
                 Text('Todavía nada. Manda un video desde el teléfono.',
                     style: text.bodyMedium?.copyWith(color: Colors.white38)),
-              for (final e in state.events.take(3))
+              for (final e in state.events.take(1))
                 Text(
                   '${_hhmm(e.at)}  ${e.message}',
                   style: text.bodyMedium?.copyWith(color: e.error ? Colors.redAccent : Colors.white70),
@@ -125,6 +142,51 @@ class _HomeScreenState extends State<HomeScreen> {
 
   static String _hhmm(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+}
+
+/// Hora y fecha, actualizadas cada 15 s.
+class ClockText extends StatefulWidget {
+  const ClockText({super.key});
+
+  @override
+  State<ClockText> createState() => _ClockTextState();
+}
+
+class _ClockTextState extends State<ClockText> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    const days = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    final text = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+          style: text.displaySmall?.copyWith(fontWeight: FontWeight.w300, height: 1),
+        ),
+        Text(
+          '${days[now.weekday - 1]} ${now.day} de ${months[now.month - 1]}',
+          style: text.bodyMedium?.copyWith(color: Colors.white54),
+        ),
+      ],
+    );
+  }
 }
 
 /// Tile grande con resalte de foco para el D-pad. Enter/OK lo activa.
@@ -167,7 +229,7 @@ class _HomeTileState extends State<HomeTile> {
           onFocusChange: (f) => setState(() => _focused = f),
           child: Container(
             width: 176,
-            height: 120,
+            height: 108,
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
