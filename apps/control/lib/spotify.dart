@@ -29,6 +29,19 @@ class SpotifyApi {
     return _track(item, isPlaying: j['is_playing'] as bool? ?? false);
   }
 
+  /// Controla lo que suena en Spotify: `next`, `pause` o `play`.
+  Future<void> player(String action) async {
+    final uri = Uri.https('api.spotify.com', '/v1/me/player/$action');
+    final r = action == 'next' ? await http.post(uri, headers: await _headers) : await http.put(uri, headers: await _headers);
+    if (r.statusCode == 401) throw const SpotifyNotLoggedIn();
+    if (r.statusCode == 403) {
+      if (r.body.contains('PREMIUM_REQUIRED')) throw StateError('Spotify solo deja saltar o pausar con Premium');
+      return; // p. ej. pausar algo que ya está en pausa
+    }
+    if (r.statusCode == 404) throw StateError('Spotify no tiene un dispositivo activo: abre Spotify y dale play');
+    if (r.statusCode >= 300) throw StateError('Spotify ${r.statusCode}: ${r.body}');
+  }
+
   /// Playlists del usuario, con "Canciones que te gustan" al inicio.
   Future<List<Playlist>> playlists() async {
     final j = await _get(Uri.https('api.spotify.com', '/v1/me/playlists', {'limit': '50'}));

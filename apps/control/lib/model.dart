@@ -78,13 +78,14 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     selectedScreenId = await _store.loadSelectedId();
     phoneName = await _store.loadPhoneName();
     pinned = await _store.loadPinned();
+    autoFollow = await _store.loadAutoFollow();
     trades = await _tradeStore.load();
     if (selectedScreen == null && screens.isNotEmpty) selectedScreenId = screens.first.id;
     loggedIn = await auth.isLoggedIn;
     if (loggedIn && !await auth.hasAllScopes) {
       await auth.logout();
       loggedIn = false;
-      status = 'Spotify pide un permiso nuevo (playlists): vuelve a conectar';
+      status = 'Spotify pide un permiso nuevo (saltar y pausar): vuelve a conectar';
     }
     notifyListeners();
     _startPolling();
@@ -101,12 +102,17 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     if (s == null) {
       projectorOnline = false;
       screenIdMismatch = false;
+      screenChecked = false;
     } else {
       final h = await ProjectorClient(s).health();
       screenIdMismatch = h != null && h.id != s.id;
       projectorOnline = h != null && h.id == s.id;
       screenSpotifyLinked = projectorOnline && h!.spotifyLinked;
       screenFollowing = projectorOnline && h!.spotifyFollowing;
+      screenQueueInfo = projectorOnline ? h!.queueInfo : null;
+      screenMediaTitle = projectorOnline ? h!.mediaTitle : null;
+      screenMediaPlaying = projectorOnline && h!.mediaPlaying;
+      screenChecked = true;
       volume = projectorOnline ? await ProjectorClient(s).volume() : null;
       if (projectorOnline) {
         // La pantalla es dueña de su nombre: si la renombró otro teléfono, nos enteramos aquí.
@@ -154,6 +160,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   void setAutoFollow(bool value) {
     autoFollow = value;
     if (!value) _followTimer?.cancel();
+    unawaited(_store.saveAutoFollow(value));
     notifyListeners();
   }
 
@@ -352,6 +359,96 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
         notifyListeners();
         final info = await ProjectorClient(s).queue(tracks: tracks, name: name, shuffle: shuffle, startAt: startAt);
         status = info == null ? 'No encontré videos para esta playlist' : 'Sonando en ${s.name}: $info';
+        screenQueueInfo = info;
+      });
+
+  /// Cola sonando en la pantalla elegida ("Playlist · 3 de 20"); null si no hay.
+  String? screenQueueInfo;
+
+  // --- Tarjeta "En el proyector" ------------------------------------------------
+
+  /// Ya respondió la pantalla elegida al menos una vez: hasta entonces no se sabe
+  /// si sigue a Spotify por su cuenta y no se muestra el switch.
+  bool screenChecked = false;
+
+  /// Video de YouTube en el proyector y si está sonando.
+  String? screenMediaTitle;
+  bool screenMediaPlaying = false;
+
+  /// Qué suena: una cola en el proyector, una canción de Spotify o solo un
+  /// video en el proyector (o nada).
+  ProjectorMode get projectorMode {
+    if (screenQueueInfo != null) return ProjectorMode.queue;
+    if (loggedIn && track != null) return ProjectorMode.spotify;
+    return ProjectorMode.free;
+  }
+
+  /// El proyector cambia el video cuando cambia la canción de Spotify.
+  bool get followingSpotify => screenSpotifyLinked ? screenFollowing : loggedIn && autoFollow;
+
+  bool get isPlaying => projectorMode == ProjectorMode.spotify ? track!.isPlaying : screenMediaPlaying;
+
+  /// El proyector muestra el video de la canción de Spotify: la sigue solo, o
+  /// se le mandó esta misma canción.
+  bool get showingTrack {
+    final t = track;
+    if (!projectorOnline || screenMediaTitle == null || t == null) return false;
+    return followingSpotify || _sentKey == '${t.artist}|${t.title}';
+  }
+
+  /// Canción cuyo video se mandó a mano por última vez.
+  String? _sentKey;
+
+  /// El status es solo el aviso de "enviado": la pestaña Ahora ya lo muestra
+  /// en la tarjeta y no lo repite (Buscar y Playlists sí, en su SnackBar).
+  bool get statusIsSend => status != null && status == _sendStatus;
+  String? _sendStatus;
+
+  /// Pausa o reanuda lo que suena: la música de Spotify y el video del proyector.
+  Future<void> togglePlay() => _run(() async {
+        final s = selectedScreen;
+        final playing = isPlaying;
+        final t = track;
+        if (projectorMode == ProjectorMode.spotify && t != null) {
+          await spotify.player(playing ? 'pause' : 'play');
+          track = Track(title: t.title, artists: t.artists, isPlaying: !playing, album: t.album, artUrl: t.artUrl);
+        }
+        if (s != null && projectorOnline && screenMediaTitle != null) {
+          await ProjectorClient(s).media(playing ? 'pause' : 'play');
+          screenMediaPlaying = !playing;
+        }
+      });
+
+  /// Siguiente: en una cola, la siguiente canción (el proyector busca su video);
+  /// en modo Spotify salta la canción y el proyector la sigue en unos segundos.
+  Future<void> skip() => _run(() async {
+        final s = selectedScreen;
+        if (projectorMode == ProjectorMode.queue && s != null) {
+          status = 'Buscando la siguiente…';
+          notifyListeners();
+          final info = await ProjectorClient(s).queue(next: true);
+          screenQueueInfo = info;
+          status = info == null ? 'Cola terminada' : 'Sonando en ${s.name}: $info';
+        } else if (projectorMode == ProjectorMode.spotify) {
+          await spotify.player('next');
+          status = followingSpotify && s != null ? 'Siguiente canción: ${s.name} cambia el video en unos segundos' : 'Siguiente canción';
+        }
+      });
+
+  /// Detiene todo: corta la cola, pausa el video y, en modo Spotify, la música.
+  Future<void> stopAll() => _run(() async {
+        final s = selectedScreen;
+        final t = track;
+        if (projectorMode == ProjectorMode.spotify && t != null) {
+          await spotify.player('pause');
+          track = Track(title: t.title, artists: t.artists, isPlaying: false, album: t.album, artUrl: t.artUrl);
+        }
+        if (s != null && projectorOnline && (screenMediaTitle != null || screenQueueInfo != null)) {
+          await ProjectorClient(s).media('stop');
+          screenQueueInfo = null;
+          screenMediaPlaying = false;
+        }
+        status = 'Detenido';
       });
 
   // --- Buscar ------------------------------------------------------------------
@@ -515,6 +612,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     candidates = rankVideos(await youtube.search(t.searchQuery, fallbackQuery: t.plainQuery), t);
     if (candidates.isEmpty) throw StateError('YouTube no encontró nada para "$t"');
     await _play(candidates.first.video);
+    _sentKey = '${t.artist}|${t.title}';
   }
 
   Future<void> _play(VideoCandidate video) async {
@@ -523,7 +621,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     status = 'Enviando a ${s.name}…';
     notifyListeners();
     await ProjectorClient(s).play(video);
-    status = 'En ${s.name}: ${video.title}';
+    status = _sendStatus = 'En ${s.name}: ${video.title}';
   }
 
   Future<void> _run(Future<void> Function() action) async {
@@ -552,3 +650,5 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
 
 /// Texto de error para mostrar: sin el prefijo "Bad state: " de StateError.
 String _msg(Object e) => '$e'.replaceFirst('Bad state: ', '');
+
+enum ProjectorMode { queue, spotify, free }

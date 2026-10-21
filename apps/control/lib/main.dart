@@ -77,11 +77,20 @@ class _HomeShellState extends State<HomeShell> {
                 icon: const Icon(Icons.gesture),
               ),
               ScreenChip(model: model),
-              if (model.loggedIn)
-                IconButton(
-                  tooltip: 'Cerrar sesión de Spotify',
-                  onPressed: model.busy ? null : model.logout,
-                  icon: const Icon(Icons.logout),
+              // Lo que casi no se usa (y no se deshace con un toque) va en el menú.
+              if (model.loggedIn || model.screenSpotifyLinked)
+                PopupMenuButton<VoidCallback>(
+                  enabled: !model.busy,
+                  onSelected: (action) => action(),
+                  itemBuilder: (_) => [
+                    if (model.screenSpotifyLinked)
+                      PopupMenuItem(
+                        value: model.unlinkSpotifyFromScreen,
+                        child: const Text('Desvincular Spotify del proyector'),
+                      ),
+                    if (model.loggedIn)
+                      PopupMenuItem(value: model.logout, child: const Text('Cerrar sesión de Spotify')),
+                  ],
                 ),
             ],
           ),

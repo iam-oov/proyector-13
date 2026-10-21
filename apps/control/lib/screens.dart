@@ -52,6 +52,7 @@ class ScreenStore {
   static const _kSelected = 'selected_screen_id';
   static const _kPhoneName = 'phone_name';
   static const _kPinned = 'pinned_playlists';
+  static const _kAutoFollow = 'auto_follow';
 
   final FlutterSecureStorage _storage;
 
@@ -77,6 +78,11 @@ class ScreenStore {
   Future<String?> loadPhoneName() => _storage.read(key: _kPhoneName);
 
   Future<void> savePhoneName(String name) => _storage.write(key: _kPhoneName, value: name);
+
+  /// "Seguir a Spotify" desde el teléfono (cuando el proyector no tiene sesión propia).
+  Future<bool> loadAutoFollow() async => await _storage.read(key: _kAutoFollow) != 'false';
+
+  Future<void> saveAutoFollow(bool on) => _storage.write(key: _kAutoFollow, value: '$on');
 
   /// Ids de playlists fijadas arriba.
   Future<Set<String>> loadPinned() async {

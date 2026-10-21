@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:shared/shared.dart';
 
 import 'config.dart';
 import 'model.dart';
@@ -22,13 +21,17 @@ class NowPage extends StatelessWidget {
           if (model.screens.isEmpty) ...[
             PairCallToAction(model: model),
             const SizedBox(height: 20),
-          ] else ...[
+          ] else if (model.selectedScreen == null || (model.screenChecked && !model.projectorOnline)) ...[
+            // Con el proyector bien basta el punto verde de arriba; aquí solo los problemas.
             ProjectorStatus(
               screen: model.selectedScreen,
               online: model.projectorOnline,
               mismatch: model.screenIdMismatch,
             ),
-            if (model.projectorOnline && model.volume != null) VolumeControl(model: model),
+            const SizedBox(height: 20),
+          ],
+          if (!model.loggedIn && model.projectorOnline) ...[
+            NowCard(model: model),
             const SizedBox(height: 20),
           ],
           if (!Config.hasSpotify)
@@ -40,44 +43,41 @@ class NowPage extends StatelessWidget {
               label: const Text('Conectar Spotify'),
             )
           else ...[
-            NowPlayingCard(track: model.track),
+            NowCard(model: model),
             const SizedBox(height: 20),
-            SizedBox(
-              height: 56,
-              child: FilledButton.icon(
-                onPressed: model.busy || model.track == null || !model.projectorOnline ? null : model.send,
-                icon: model.busy
-                    ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.cast),
-                label: Text(
-                  model.selectedScreen == null ? 'Enviar el video' : 'Enviar el video a ${model.selectedScreen!.name}',
-                  style: const TextStyle(fontSize: 16),
-                  overflow: TextOverflow.ellipsis,
+            if (!model.showingTrack && model.track != null) ...[
+              SizedBox(
+                height: 56,
+                child: FilledButton.icon(
+                  onPressed: model.busy || model.track == null || !model.projectorOnline ? null : model.send,
+                  icon: model.busy
+                      ? const SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.cast),
+                  label: Text(
+                    model.selectedScreen == null ? 'Enviar el video' : 'Enviar el video a ${model.selectedScreen!.name}',
+                    style: const TextStyle(fontSize: 16),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
-            ),
-            if (model.screenSpotifyLinked) ...[
+              const SizedBox(height: 8),
+            ],
+            if (!model.screenChecked && model.selectedScreen != null)
+              const SizedBox.shrink() // hasta que responda la pantalla no se sabe qué switch va
+            else if (model.screenSpotifyLinked) ...[
               // El proyector tiene su propia sesión: sigue la música aunque el teléfono esté guardado.
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Seguir a Spotify'),
-                subtitle: Text('${model.selectedScreen?.name ?? 'El proyector'} cambia el video solo, '
-                    'aunque guardes el teléfono'),
+                subtitle: const Text('El proyector cambia el video solo'),
                 value: model.screenFollowing,
                 onChanged: model.busy ? null : model.setScreenFollowing,
-              ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  onPressed: model.busy ? null : model.unlinkSpotifyFromScreen,
-                  child: const Text('Desvincular Spotify del proyector'),
-                ),
               ),
             ] else ...[
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Seguir a Spotify'),
-                subtitle: const Text('Al cambiar la canción manda el video solo (con esta app abierta)'),
+                subtitle: const Text('El proyector cambia el video solo (con esta app abierta)'),
                 value: model.autoFollow,
                 onChanged: model.setAutoFollow,
               ),
@@ -91,20 +91,24 @@ class NowPage extends StatelessWidget {
           ],
           const SizedBox(height: 16),
           if (model.error != null) Notice(model.error!, error: true),
-          if (model.status != null && model.error == null) Notice(model.status!),
-          if (model.candidates.length > 1) ...[
-            const SizedBox(height: 24),
-            Text('Otras opciones', style: Theme.of(context).textTheme.titleMedium),
-            for (final c in model.candidates.skip(1))
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: c.video.thumbnailUrl == null ? null : Image.network(c.video.thumbnailUrl!, width: 64),
-                title: Text(c.video.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-                subtitle: Text(c.video.channel),
-                trailing: Text('${c.score}'),
-                onTap: model.busy ? null : () => model.sendVideo(c.video),
-              ),
-          ],
+          if (model.status != null && model.error == null && !model.statusIsSend) Notice(model.status!),
+          if (model.candidates.length > 1)
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              shape: const Border(),
+              title: Text('¿No es el video correcto? (${model.candidates.length - 1})'),
+              children: [
+                for (final c in model.candidates.skip(1))
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: c.video.thumbnailUrl == null ? null : Image.network(c.video.thumbnailUrl!, width: 64),
+                    title: Text(c.video.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(c.video.channel),
+                    onTap: model.busy ? null : () => model.sendVideo(c.video),
+                  ),
+              ],
+            ),
         ],
       ),
     );
@@ -223,41 +227,119 @@ class ProjectorStatus extends StatelessWidget {
   }
 }
 
-class NowPlayingCard extends StatelessWidget {
-  const NowPlayingCard({super.key, required this.track});
+/// Lo que suena y sus controles, en una sola tarjeta: una cola de playlist en
+/// el proyector, la canción de Spotify (y si se ve en el proyector) o un video
+/// suelto en el proyector.
+class NowCard extends StatelessWidget {
+  const NowCard({super.key, required this.model});
 
-  final Track? track;
+  final ControlModel model;
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    final t = track;
+    final mode = model.projectorMode;
+    final video = model.projectorOnline ? model.screenMediaTitle : null;
+    final screen = model.selectedScreen?.name ?? 'el proyector';
+    final t = model.track;
+    final (String label, String title, String? subtitle, String? artUrl) = switch (mode) {
+      ProjectorMode.queue => (model.screenQueueInfo!, video ?? 'Buscando el video…', null, null),
+      ProjectorMode.spotify => (t!.isPlaying ? 'Sonando en Spotify' : 'Spotify en pausa', t.title, t.artist, t.artUrl),
+      ProjectorMode.free => (video == null ? 'Sin música' : 'En $screen', video ?? 'Nada sonando', null, null),
+    };
+    final fallback = switch (mode) {
+      ProjectorMode.queue => Icons.queue_music,
+      ProjectorMode.spotify => Icons.album,
+      ProjectorMode.free => Icons.smart_display,
+    };
+    // Solo en modo Spotify: etiqueta a la derecha del encabezado con si el
+    // proyector está mostrando la canción (verde) o no (gris).
+    final live = model.showingTrack;
+    final String? onScreen = mode != ProjectorMode.spotify || !model.projectorOnline
+        ? null
+        : live
+            ? 'En $screen'
+            : model.followingSpotify
+                ? 'Esperando canción'
+                : 'No en $screen';
+    final chipColor = live ? Colors.greenAccent : Colors.white54;
+    final canPlay = mode == ProjectorMode.spotify || video != null;
+    final canStop = mode != ProjectorMode.free || video != null;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: t == null
-            ? Text('Nada sonando en Spotify', style: text.titleMedium?.copyWith(color: Colors.white54))
-            : Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: t.artUrl == null
-                        ? const SizedBox.square(dimension: 72, child: Icon(Icons.album, size: 40))
-                        : Image.network(t.artUrl!, width: 72, height: 72, fit: BoxFit.cover),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text(label, style: text.labelMedium?.copyWith(color: Colors.white54))),
+                if (onScreen != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: chipColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(t.title, style: text.titleMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
-                        Text(t.artist, style: text.bodyMedium?.copyWith(color: Colors.white70)),
-                        if (!t.isPlaying) Text('Pausado', style: text.bodySmall?.copyWith(color: Colors.white38)),
+                        Icon(live ? Icons.circle : Icons.cast, size: live ? 8 : 12, color: chipColor),
+                        const SizedBox(width: 6),
+                        Text(onScreen, style: text.labelMedium?.copyWith(color: chipColor)),
                       ],
                     ),
                   ),
-                ],
-              ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: artUrl == null
+                      ? SizedBox.square(dimension: 64, child: Icon(fallback, size: 36))
+                      : Image.network(artUrl, width: 64, height: 64, fit: BoxFit.cover),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title, style: text.titleMedium, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      if (subtitle != null) Text(subtitle, style: text.bodyMedium?.copyWith(color: Colors.white70)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                IconButton(
+                  tooltip: model.isPlaying ? 'Pausar' : 'Reanudar',
+                  iconSize: 32,
+                  onPressed: model.busy || !canPlay ? null : model.togglePlay,
+                  icon: Icon(model.isPlaying ? Icons.pause : Icons.play_arrow),
+                ),
+                IconButton(
+                  tooltip: 'Siguiente',
+                  iconSize: 32,
+                  onPressed: model.busy || mode == ProjectorMode.free ? null : model.skip,
+                  icon: const Icon(Icons.skip_next),
+                ),
+                IconButton(
+                  tooltip: 'Detener',
+                  iconSize: 32,
+                  onPressed: model.busy || !canStop ? null : model.stopAll,
+                  icon: const Icon(Icons.stop),
+                ),
+              ],
+            ),
+            // Volumen del proyector: junto a los demás controles.
+            if (model.projectorOnline && model.volume != null) VolumeControl(model: model),
+          ],
+        ),
       ),
     );
   }

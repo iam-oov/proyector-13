@@ -12,6 +12,9 @@ class ReceiverHealth {
     required this.version,
     this.spotifyLinked = false,
     this.spotifyFollowing = false,
+    this.queueInfo,
+    this.mediaTitle,
+    this.mediaPlaying = false,
   });
 
   final String id;
@@ -21,6 +24,13 @@ class ReceiverHealth {
   /// El proyector tiene su propia sesión de Spotify y sigue la música solo.
   final bool spotifyLinked;
   final bool spotifyFollowing;
+
+  /// Cola sonando en la pantalla ("Playlist · 3 de 20"); null si no hay.
+  final String? queueInfo;
+
+  /// Video de YouTube en el proyector y si está sonando.
+  final String? mediaTitle;
+  final bool mediaPlaying;
 }
 
 class ProjectorUnauthorized implements Exception {
@@ -48,12 +58,17 @@ class ProjectorClient {
       final j = jsonDecode(r.body) as Map<String, dynamic>;
       if (j['app'] != receiverApp || j['id'] == null) return null;
       final sp = j['spotify'] as Map?;
+      final q = j['queue'] as Map?;
+      final m = j['media'] as Map?;
       return ReceiverHealth(
         id: j['id'] as String,
         name: (j['name'] as String?) ?? screen.name,
         version: (j['version'] as int?) ?? 1,
         spotifyLinked: sp?['linked'] == true,
         spotifyFollowing: sp?['following'] == true,
+        queueInfo: q?['active'] == true ? (q?['info'] as String?) : null,
+        mediaTitle: m?['title'] as String?,
+        mediaPlaying: m?['playing'] == true,
       );
     } catch (_) {
       return null;
@@ -98,25 +113,48 @@ class ProjectorClient {
     return (jsonDecode(r.body) as Map<String, dynamic>)['mode'] as String? ?? 'none';
   }
 
-  /// Cola en el proyector: avanza sola al terminar cada video. `stop` la corta.
-  Future<String?> queue({List<Track>? tracks, String? name, bool shuffle = false, int startAt = 0, bool stop = false}) async {
+  /// Cola en el proyector: avanza sola al terminar cada video. `next` salta a
+  /// la siguiente canción y `stop` la corta.
+  Future<String?> queue({
+    List<Track>? tracks,
+    String? name,
+    bool shuffle = false,
+    int startAt = 0,
+    bool next = false,
+    bool stop = false,
+  }) async {
     final r = await http
         .post(
           _url('/queue'),
           headers: {'content-type': 'application/json', ..._auth},
           body: jsonEncode(stop
               ? {'stop': true}
-              : {
-                  'tracks': [for (final t in tracks ?? const <Track>[]) t.toJson()],
-                  'name': ?name,
-                  'shuffle': shuffle,
-                  'startAt': startAt,
-                }),
+              : next
+                  ? {'next': true}
+                  : {
+                      'tracks': [for (final t in tracks ?? const <Track>[]) t.toJson()],
+                      'name': ?name,
+                      'shuffle': shuffle,
+                      'startAt': startAt,
+                    }),
         )
         .timeout(const Duration(seconds: 30));
     if (r.statusCode == 401) throw const ProjectorUnauthorized();
     if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
     return (jsonDecode(r.body) as Map<String, dynamic>)['info'] as String?;
+  }
+
+  /// Video de YouTube en el proyector: `play`, `pause` o `stop` (pausa y corta la cola).
+  Future<void> media(String action) async {
+    final r = await http
+        .post(
+          _url('/media'),
+          headers: {'content-type': 'application/json', ..._auth},
+          body: jsonEncode({'action': action}),
+        )
+        .timeout(const Duration(seconds: 5));
+    if (r.statusCode == 401) throw const ProjectorUnauthorized();
+    if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
   }
 
   /// Volumen del proyector: `(level, max, muted)` o null si no responde.

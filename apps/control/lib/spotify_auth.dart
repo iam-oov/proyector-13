@@ -21,6 +21,8 @@ class SpotifyAuth {
     'playlist-read-private',
     'playlist-read-collaborative',
     'user-library-read',
+    // Saltar y pausar desde la tarjeta "En el proyector".
+    'user-modify-playback-state',
   ];
   static final _scopes = scopes.join(' ');
   static const _key = 'spotify_token';
