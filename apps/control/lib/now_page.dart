@@ -77,11 +77,13 @@ class NowPage extends StatelessWidget {
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Seguir a Spotify'),
-                subtitle: const Text('El proyector cambia el video solo (con esta app abierta)'),
+                subtitle: Text('${model.selectedScreen?.isTv ?? false ? 'La TV' : 'El proyector'} cambia el video solo '
+                    '(con esta app abierta)'),
                 value: model.autoFollow,
                 onChanged: model.setAutoFollow,
               ),
-              if (model.projectorOnline)
+              // La TV sin receptor no puede seguir a Spotify por su cuenta.
+              if (model.projectorOnline && !(model.selectedScreen?.isTv ?? false))
                 OutlinedButton.icon(
                   onPressed: model.busy ? null : model.linkSpotifyToScreen,
                   icon: const Icon(Icons.link),

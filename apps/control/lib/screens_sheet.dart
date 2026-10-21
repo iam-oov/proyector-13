@@ -70,6 +70,42 @@ Future<void> pasteAndAddScreen(BuildContext context, ControlModel model) async {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Conectado a "${payload.name}"')));
 }
 
+/// TV sin receptor (DIAL + YouTube): se agrega con su IP, que se ve en Ajustes → Red
+/// de la TV. El teléfono tiene que estar en el mismo Wi-Fi.
+Future<void> addTvDialog(BuildContext context, ControlModel model) async {
+  final ip = TextEditingController();
+  final name = TextEditingController(text: 'TV');
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Agregar TV'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: ip,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(labelText: 'IP de la TV', hintText: '192.168.100.25'),
+          ),
+          TextField(controller: name, decoration: const InputDecoration(labelText: 'Nombre', hintText: 'Recámara')),
+          const SizedBox(height: 12),
+          const Text('Para TVs sin el receptor: la app abre YouTube con el video y sigue a Spotify. '
+              'El teléfono tiene que estar en el mismo Wi-Fi que la TV.'),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancelar')),
+        FilledButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Agregar')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  await model.addTv(ip.text.replaceAll(RegExp(r'[^0-9.]'), ''), name: name.text);
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(model.error ?? model.status ?? '')));
+}
+
 /// Abre la cámara, y si el QR es de un proyector lo guarda y lo activa.
 Future<void> scanAndAddScreen(BuildContext context, ControlModel model) async {
   if (!await ensurePhoneName(context, model)) return;
@@ -154,13 +190,13 @@ class ScreensSheet extends StatelessWidget {
                   color: s.id == model.selectedScreenId ? Theme.of(context).colorScheme.primary : null,
                 ),
                 title: Text(s.name),
-                subtitle: Text(s.address),
+                subtitle: Text(s.isTv ? '${s.host} · TV (YouTube)' : s.address),
                 trailing: PopupMenuButton<String>(
                   onSelected: (action) => _onAction(context, action, s),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'rename', child: Text('Renombrar')),
-                    PopupMenuItem(value: 'copy', child: Text('Copiar código (para otro teléfono)')),
-                    PopupMenuItem(value: 'remove', child: Text('Eliminar')),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'rename', child: Text('Renombrar')),
+                    if (!s.isTv) const PopupMenuItem(value: 'copy', child: Text('Copiar código (para otro teléfono)')),
+                    const PopupMenuItem(value: 'remove', child: Text('Eliminar')),
                   ],
                 ),
                 onTap: () {
@@ -202,6 +238,21 @@ class ScreensSheet extends StatelessWidget {
                     label: const Text('Pegar código'),
                   ),
                 ],
+              ),
+            ),
+            // TVs sin receptor (no Android): se controlan por DIAL + YouTube.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    addTvDialog(context, model);
+                  },
+                  icon: const Icon(Icons.live_tv),
+                  label: const Text('Agregar TV sin receptor (por IP)'),
+                ),
               ),
             ),
           ],

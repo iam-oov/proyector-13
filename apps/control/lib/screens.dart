@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared/shared.dart';
 
-/// Una pantalla vinculada (un proyector o TV con el receptor instalado).
+/// Una pantalla vinculada: un proyector o TV con el receptor instalado
+/// (`kind: receiver`, vinculada por QR) o una TV sin receptor que se controla
+/// por DIAL + YouTube (`kind: tv`, agregada por IP).
 class Screen {
   const Screen({
     required this.id,
@@ -11,7 +13,12 @@ class Screen {
     required this.host,
     required this.port,
     required this.token,
+    this.kind = 'receiver',
   });
+
+  /// TV sin receptor: el id sale de su IP y no hay token.
+  factory Screen.tv(String host, {String? name}) =>
+      Screen(id: 'tv-$host', name: name ?? 'TV', host: host, port: 56789, token: '', kind: 'tv');
 
   factory Screen.fromPayload(PairingPayload p) =>
       Screen(id: p.id, name: p.name, host: p.host, port: p.port, token: p.token);
@@ -22,6 +29,7 @@ class Screen {
         host: j['host'] as String,
         port: j['port'] as int,
         token: j['token'] as String,
+        kind: (j['kind'] as String?) ?? 'receiver',
       );
 
   final String id;
@@ -29,8 +37,11 @@ class Screen {
   final String host;
   final int port;
   final String token;
+  final String kind;
 
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'host': host, 'port': port, 'token': token};
+  bool get isTv => kind == 'tv';
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'host': host, 'port': port, 'token': token, 'kind': kind};
 
   Screen copyWith({String? name, String? host, int? port, String? token}) => Screen(
         id: id,
@@ -38,6 +49,7 @@ class Screen {
         host: host ?? this.host,
         port: port ?? this.port,
         token: token ?? this.token,
+        kind: kind,
       );
 
   String get address => '$host:$port';

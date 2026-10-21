@@ -69,13 +69,14 @@ class _HomeShellState extends State<HomeShell> {
                 ),
                 icon: const Icon(Icons.candlestick_chart_outlined),
               ),
-              IconButton(
-                tooltip: 'Máscara',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => MaskPage(model: model)),
+              if (!(model.selectedScreen?.isTv ?? false))
+                IconButton(
+                  tooltip: 'Máscara',
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(builder: (_) => MaskPage(model: model)),
+                  ),
+                  icon: const Icon(Icons.gesture),
                 ),
-                icon: const Icon(Icons.gesture),
-              ),
               ScreenChip(model: model),
               // Lo que casi no se usa (y no se deshace con un toque) va en el menú.
               if (model.loggedIn || model.screenSpotifyLinked)

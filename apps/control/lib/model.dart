@@ -9,6 +9,7 @@ import 'screens.dart';
 import 'spotify.dart';
 import 'spotify_auth.dart';
 import 'trading_store.dart';
+import 'tv.dart';
 import 'youtube.dart';
 
 /// Estado de la app: pantallas vinculadas, sesión, qué suena, playlists y el último envío.
@@ -103,6 +104,24 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       projectorOnline = false;
       screenIdMismatch = false;
       screenChecked = false;
+    } else if (s.isTv) {
+      // TV sin receptor: solo se sabe si YouTube está abierto.
+      final st = await TvClient(s).status();
+      screenIdMismatch = false;
+      projectorOnline = st != null;
+      screenSpotifyLinked = false;
+      screenFollowing = false;
+      screenQueueInfo = null;
+      screenMediaTitle = st != null && st.running ? 'YouTube' : null;
+      screenMediaPlaying = st != null && st.running;
+      screenChecked = true;
+      // Volumen de YouTube: se lee una vez al conectarse; después lo lleva la app.
+      if (st == null || !st.running) {
+        volume = null;
+      } else if (volume == null || volume!.max != 100) {
+        final v = await TvClient(s).volume();
+        volume = v == null ? null : (level: v.level, max: 100, muted: v.muted);
+      }
     } else {
       final h = await ProjectorClient(s).health();
       screenIdMismatch = h != null && h.id != s.id;
@@ -229,6 +248,25 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     await _tick();
   }
 
+  /// Agrega una TV sin receptor por su IP, si responde a DIAL con YouTube.
+  Future<void> addTv(String host, {String? name}) => _run(() async {
+        final h = host.trim();
+        final screen = Screen.tv(h, name: name?.trim().isEmpty ?? true ? 'TV' : name!.trim());
+        if (await TvClient(screen).status() == null) {
+          throw StateError('$h no responde como TV con YouTube: revisa la IP y que el teléfono esté en su Wi-Fi');
+        }
+        final i = screens.indexWhere((s) => s.id == screen.id);
+        if (i >= 0) {
+          screens[i] = screen;
+        } else {
+          screens.add(screen);
+        }
+        selectedScreenId = screen.id;
+        await _persistScreens();
+        status = 'TV "${screen.name}" guardada';
+        await _tick();
+      });
+
   Future<void> setPhoneName(String name) async {
     final n = name.trim();
     if (n.isEmpty) return;
@@ -241,7 +279,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   /// POST /pair: la pantalla muestra "Conectado: `nombre`". Si falla, no pasa nada.
   Future<void> _announce(Screen s) async {
     final name = phoneName;
-    if (name == null) return;
+    if (name == null || s.isTv) return;
     try {
       final r = await ProjectorClient(s).pair(name);
       if (r.name != s.name) await _updateScreen(s.copyWith(name: r.name));
@@ -273,7 +311,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     final i = screens.indexWhere((s) => s.id == id);
     if (i < 0 || n.isEmpty) return;
     var finalName = n;
-    if (id == selectedScreenId && projectorOnline) {
+    if (id == selectedScreenId && projectorOnline && !screens[i].isTv) {
       try {
         final r = await ProjectorClient(screens[i]).pair(phoneName ?? 'Teléfono', screenName: n);
         finalName = r.name;
@@ -355,6 +393,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       _run(() async {
         final s = selectedScreen;
         if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
+        if (s.isTv) throw StateError('Aleatorio todavía no funciona en TVs: toca una canción para mandarla');
         status = 'Armando la cola…';
         notifyListeners();
         final info = await ProjectorClient(s).queue(tracks: tracks, name: name, shuffle: shuffle, startAt: startAt);
@@ -414,7 +453,11 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
           track = Track(title: t.title, artists: t.artists, isPlaying: !playing, album: t.album, artUrl: t.artUrl);
         }
         if (s != null && projectorOnline && screenMediaTitle != null) {
-          await ProjectorClient(s).media(playing ? 'pause' : 'play');
+          if (s.isTv) {
+            playing ? await TvClient(s).pause() : await TvClient(s).resume();
+          } else {
+            await ProjectorClient(s).media(playing ? 'pause' : 'play');
+          }
           screenMediaPlaying = !playing;
         }
       });
@@ -444,7 +487,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
           track = Track(title: t.title, artists: t.artists, isPlaying: false, album: t.album, artUrl: t.artUrl);
         }
         if (s != null && projectorOnline && (screenMediaTitle != null || screenQueueInfo != null)) {
-          await ProjectorClient(s).media('stop');
+          s.isTv ? await TvClient(s).pause() : await ProjectorClient(s).media('stop');
           screenQueueInfo = null;
           screenMediaPlaying = false;
         }
@@ -548,6 +591,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> showTradingOnProjector(bool show) => _run(() async {
         final s = selectedScreen;
         if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
+        if (s.isTv) throw StateError('${s.name} no tiene el receptor: el tablero solo va en los proyectores');
         final mode = await ProjectorClient(s).trading(show: show, trades: trades);
         tradingOverlay = mode == 'overlay';
         tradingOnProjector = show;
@@ -561,7 +605,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> hideTradingOverlay() => _run(() async {
         final s = selectedScreen;
-        if (s == null) return;
+        if (s == null || s.isTv) return;
         await ProjectorClient(s).trading(overlay: false);
         tradingOverlay = false;
         status = 'Video en grande otra vez';
@@ -574,6 +618,25 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> changeVolume({int? level, int? delta, bool? mute}) async {
     final s = selectedScreen;
     if (s == null) return;
+    if (s.isTv) {
+      // Volumen de YouTube 0..100 en pasos de 5.
+      final cur = volume ?? (level: 50, max: 100, muted: false);
+      try {
+        if (mute != null) {
+          await TvClient(s).mute(mute);
+          volume = (level: cur.level, max: 100, muted: mute);
+        } else {
+          final next = (level ?? cur.level + (delta ?? 0) * 5).clamp(0, 100);
+          await TvClient(s).setVolume(next);
+          volume = (level: next, max: 100, muted: false);
+        }
+        error = null;
+      } catch (e) {
+        error = _msg(e);
+      }
+      notifyListeners();
+      return;
+    }
     final v = await ProjectorClient(s).volume(level: level, delta: delta, mute: mute);
     if (v != null) {
       volume = v;
@@ -584,7 +647,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   /// Si el tablero está en el proyector, cada cambio se refleja allá.
   Future<void> _pushTrading() async {
     final s = selectedScreen;
-    if (s == null || !projectorOnline) return;
+    if (s == null || !projectorOnline || s.isTv) return;
     try {
       await ProjectorClient(s).trading(trades: trades);
     } catch (_) {
@@ -620,7 +683,11 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
     status = 'Enviando a ${s.name}…';
     notifyListeners();
-    await ProjectorClient(s).play(video);
+    if (s.isTv) {
+      await TvClient(s).play(video.id);
+    } else {
+      await ProjectorClient(s).play(video);
+    }
     status = _sendStatus = 'En ${s.name}: ${video.title}';
   }
 
