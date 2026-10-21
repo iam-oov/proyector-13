@@ -7,6 +7,7 @@ import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -17,6 +18,20 @@ class MainActivity : FlutterActivity() {
         } else {
             startService(keepAlive)
         }
+        saveHomeTitle(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        saveHomeTitle(intent)
+    }
+
+    // Titulo del inicio desde ADB (lo pregunta la skill /proyector-start):
+    //   am start -n dev.valdo.proyector/.MainActivity --es homeTitle "Casa Lopez"
+    // El inicio lo relee al volver al frente.
+    private fun saveHomeTitle(intent: Intent?) {
+        val title = intent?.getStringExtra("homeTitle")?.trim() ?: return
+        File(filesDir, "home_title.txt").writeText(title.take(40))
     }
 
     // Engine compartido creado en ProyectorApplication: una sola instancia de Dart

@@ -19,9 +19,28 @@ class TradingStats extends StatelessWidget {
     final small = text.bodyMedium?.copyWith(color: Colors.white54);
     return Container(
       padding: const EdgeInsets.all(16),
+      // Vidrio oscuro ciruela: combina con el inicio rosa y deja leer los números.
       decoration: BoxDecoration(
-        color: const Color(0xFF1C2226),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(20),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xFF3A1030).withValues(alpha: 0.88),
+            const Color(0xFF1E0A1C).withValues(alpha: 0.82),
+          ],
+        ),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.35),
+          width: 1.2,
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x40A8005C),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
