@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 
 import 'apps.dart';
 import 'state.dart';
+import 'trading_dashboard.dart';
 
-/// Pantalla de inicio del proyector: tiles de apps + Trading + Vincular +
-/// Ajustes, navegables con el control. Abajo, los últimos envíos.
+/// Pantalla de inicio del proyector: tiles de apps + Vincular + Ajustes,
+/// navegables con el control; a la derecha, las estadísticas de trading.
+/// Abajo, el último envío.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.state});
 
@@ -49,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final text = Theme.of(context).textTheme;
     return Scaffold(
       body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 32),
+        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 28),
         child: ListenableBuilder(
           listenable: state,
           builder: (context, _) => Column(
@@ -65,71 +67,102 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       const ClockText(),
                       Text(
-                        state.phones.isEmpty ? 'Nadie conectado' : 'Conectado: ${state.phones.join(', ')}',
+                        state.phones.isEmpty
+                            ? 'Nadie conectado'
+                            : 'Conectado: ${state.phones.join(', ')}',
                         style: text.bodyMedium?.copyWith(color: Colors.white54),
                       ),
                     ],
                   ),
                 ],
               ),
-              const SizedBox(height: 28),
-              Wrap(
-                spacing: 16,
-                runSpacing: 16,
+              const SizedBox(height: 24),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final (i, app) in _apps.indexed)
-                    HomeTile(
-                      label: app.label,
-                      icon: app.icon == null
-                          ? const Icon(Icons.apps, size: 40)
-                          : Image.memory(app.icon!, width: 56, height: 56, filterQuality: FilterQuality.medium),
-                      autofocus: i == 0,
-                      onTap: () => _open(() => launchPackage(app.package)),
+                  Expanded(
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        for (final (i, app) in _apps.indexed)
+                          HomeTile(
+                            label: app.label,
+                            icon: app.icon == null
+                                ? const Icon(Icons.apps, size: 34)
+                                : Image.memory(
+                                    app.icon!,
+                                    width: 56,
+                                    height: 56,
+                                    filterQuality: FilterQuality.medium,
+                                  ),
+                            autofocus: i == 0,
+                            onTap: () =>
+                                _open(() => launchPackage(app.package)),
+                          ),
+                        HomeTile(
+                          label: 'Vincular teléfono',
+                          icon: const Icon(Icons.qr_code_2, size: 34),
+                          color: const Color(0xFF2D2640),
+                          autofocus: _apps.isEmpty,
+                          onTap: () => state.showPanel(ReceiverPanel.qr),
+                        ),
+                        // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
+                        HomeTile(
+                          label: 'Ajustes',
+                          icon: const Icon(Icons.settings, size: 34),
+                          color: const Color(0xFF2B2B2B),
+                          onTap: () => _open(
+                            () => launchComponent(
+                              'com.jixin.settings5',
+                              'com.jixin.settings5.SettingsActivity',
+                            ),
+                          ),
+                        ),
+                        // Los de Android TV: apps, cuentas, mandos, redes.
+                        HomeTile(
+                          label: 'Ajustes Android',
+                          icon: const Icon(Icons.tune, size: 34),
+                          color: const Color(0xFF2B2B2B),
+                          onTap: () => _open(
+                            () => launchComponent(
+                              'com.android.tv.settings',
+                              'com.android.tv.settings.MainSettings',
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  HomeTile(
-                    label: 'Trading',
-                    icon: const Icon(Icons.candlestick_chart_outlined, size: 40),
-                    color: const Color(0xFF263238),
-                    autofocus: _apps.isEmpty,
-                    onTap: () => state.showPanel(ReceiverPanel.trading),
                   ),
-                  HomeTile(
-                    label: 'Vincular teléfono',
-                    icon: const Icon(Icons.qr_code_2, size: 40),
-                    color: const Color(0xFF2D2640),
-                    onTap: () => state.showPanel(ReceiverPanel.qr),
-                  ),
-                  // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
-                  HomeTile(
-                    label: 'Ajustes',
-                    icon: const Icon(Icons.settings, size: 40),
-                    color: const Color(0xFF2B2B2B),
-                    onTap: () => _open(() => launchComponent('com.jixin.settings5', 'com.jixin.settings5.SettingsActivity')),
-                  ),
-                  // Los de Android TV: apps, cuentas, mandos, redes.
-                  HomeTile(
-                    label: 'Ajustes Android',
-                    icon: const Icon(Icons.tune, size: 40),
-                    color: const Color(0xFF2B2B2B),
-                    onTap: () => _open(() => launchComponent('com.android.tv.settings', 'com.android.tv.settings.MainSettings')),
-                  ),
+                  // Estadísticas de trading (solo si hay movimientos registrados).
+                  if (state.trades.isNotEmpty) ...[
+                    const SizedBox(width: 20),
+                    SizedBox(width: 288, child: TradingStats(state: state)),
+                  ],
                 ],
               ),
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
-                  child: Text(_error!, style: text.bodyMedium?.copyWith(color: Colors.redAccent)),
+                  child: Text(
+                    _error!,
+                    style: text.bodyMedium?.copyWith(color: Colors.redAccent),
+                  ),
                 ),
               const Spacer(),
               Text('Últimos envíos', style: text.titleMedium),
               const SizedBox(height: 8),
               if (state.events.isEmpty)
-                Text('Todavía nada. Manda un video desde el teléfono.',
-                    style: text.bodyMedium?.copyWith(color: Colors.white38)),
+                Text(
+                  'Todavía nada. Manda un video desde el teléfono.',
+                  style: text.bodyMedium?.copyWith(color: Colors.white38),
+                ),
               for (final e in state.events.take(1))
                 Text(
                   '${_hhmm(e.at)}  ${e.message}',
-                  style: text.bodyMedium?.copyWith(color: e.error ? Colors.redAccent : Colors.white70),
+                  style: text.bodyMedium?.copyWith(
+                    color: e.error ? Colors.redAccent : Colors.white70,
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -158,7 +191,10 @@ class _ClockTextState extends State<ClockText> {
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 15), (_) => setState(() {}));
+    _timer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => setState(() {}),
+    );
   }
 
   @override
@@ -170,15 +206,39 @@ class _ClockTextState extends State<ClockText> {
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
-    const days = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
-    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const days = [
+      'lunes',
+      'martes',
+      'miércoles',
+      'jueves',
+      'viernes',
+      'sábado',
+      'domingo',
+    ];
+    const months = [
+      'ene',
+      'feb',
+      'mar',
+      'abr',
+      'may',
+      'jun',
+      'jul',
+      'ago',
+      'sep',
+      'oct',
+      'nov',
+      'dic',
+    ];
     final text = Theme.of(context).textTheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Text(
           '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
-          style: text.displaySmall?.copyWith(fontWeight: FontWeight.w300, height: 1),
+          style: text.displaySmall?.copyWith(
+            fontWeight: FontWeight.w300,
+            height: 1,
+          ),
         ),
         Text(
           '${days[now.weekday - 1]} ${now.day} de ${months[now.month - 1]}',
@@ -228,20 +288,30 @@ class _HomeTileState extends State<HomeTile> {
           onTap: widget.onTap,
           onFocusChange: (f) => setState(() => _focused = f),
           child: Container(
-            width: 176,
-            height: 108,
-            padding: const EdgeInsets.all(14),
+            width: 140,
+            height: 96,
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _focused ? Colors.white : Colors.transparent, width: 3),
+              border: Border.all(
+                color: _focused ? Colors.white : Colors.transparent,
+                width: 3,
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 widget.icon,
-                Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                Text(
+                  widget.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ],
             ),
           ),

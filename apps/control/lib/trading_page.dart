@@ -65,12 +65,13 @@ class _TradingPageState extends State<TradingPage> {
               Row(
                 children: [
                   Expanded(
+                    // Las estadísticas viven en el inicio del proyector: esto lo trae al frente.
                     child: FilledButton.icon(
                       onPressed: model.busy || !model.projectorOnline
                           ? null
-                          : () => model.showTradingOnProjector(!model.tradingOnProjector),
-                      icon: Icon(model.tradingOnProjector ? Icons.tv_off : Icons.tv),
-                      label: Text(model.tradingOnProjector ? 'Ocultar del proyector' : 'Mostrar en el proyector'),
+                          : () => model.showTradingOnProjector(true),
+                      icon: const Icon(Icons.tv),
+                      label: const Text('Ver en el proyector'),
                     ),
                   ),
                 ],

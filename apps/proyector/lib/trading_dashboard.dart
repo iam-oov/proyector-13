@@ -5,78 +5,115 @@ import 'package:shared/shared.dart';
 
 import 'state.dart';
 
-/// Tablero de trading para la TV: P&L del día, abierto y realizado, y las
-/// posiciones con precio de Yahoo. Atrás en el control vuelve al QR.
-class TradingDashboard extends StatelessWidget {
-  const TradingDashboard({super.key, required this.state});
+/// Estadísticas de trading para el inicio: P&L del día y abierto, realizado,
+/// y las posiciones con el precio de Yahoo. Se actualiza cada minuto.
+class TradingStats extends StatelessWidget {
+  const TradingStats({super.key, required this.state});
 
   final ReceiverState state;
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (_, _) => state.showPanel(ReceiverPanel.home),
-      child: Scaffold(
-        body: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 40),
-          child: ListenableBuilder(
-            listenable: state,
-            builder: (context, _) {
-              final s = state.stats;
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text('Trading', style: text.headlineMedium),
-                      const Spacer(),
-                      Text(_footer(state), style: text.bodyMedium?.copyWith(color: Colors.white54)),
-                      if (!state.quotesLoading && state.nextQuotesAt != null) ...[
-                        const SizedBox(width: 16),
-                        _Countdown(until: state.nextQuotesAt!, style: text.bodyMedium?.copyWith(color: Colors.white70)),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      _Stat('P&L del día', s.dayTotal, big: true),
-                      _Stat('P&L abierto', s.unrealizedPnl),
-                      _Stat('Realizado hoy', s.realizedToday),
-                      _Stat('Realizado total', s.realizedTotal),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
-                  if (s.positions.isEmpty)
-                    Text('Sin posiciones abiertas', style: text.titleMedium?.copyWith(color: Colors.white54))
-                  else
-                    Expanded(child: _PositionsTable(positions: s.positions)),
-                  if (state.quotesError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(state.quotesError!, style: text.bodyMedium?.copyWith(color: Colors.redAccent)),
-                    ),
-                ],
-              );
-            },
+    final s = state.stats;
+    final small = text.bodyMedium?.copyWith(color: Colors.white54);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1C2226),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Text('Trading', style: text.titleMedium),
+              const Spacer(),
+              if (state.quotesLoading)
+                Text('Actualizando…', style: small)
+              else if (state.nextQuotesAt != null)
+                _Countdown(until: state.nextQuotesAt!, style: small),
+            ],
           ),
-        ),
+          const SizedBox(height: 10),
+          Text('P&L del día', style: small),
+          Text(money(s.dayTotal), style: text.displaySmall?.copyWith(color: pnlColor(s.dayTotal))),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _MiniStat('Abierto', s.unrealizedPnl),
+              _MiniStat('Realizado hoy', s.realizedToday),
+              _MiniStat('Total', s.totalPnl),
+            ],
+          ),
+          if (s.positions.isNotEmpty) ...[
+            const Divider(height: 24),
+            for (final p in s.positions.take(5))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 3),
+                child: Row(
+                  children: [
+                    SizedBox(width: 56, child: Text(p.symbol, style: text.titleSmall)),
+                    Expanded(
+                      child: Text(
+                        p.quote == null ? '—' : money(p.quote!.price, sign: false),
+                        style: text.bodyMedium?.copyWith(color: Colors.white70),
+                      ),
+                    ),
+                    Text(money(p.unrealized), style: text.bodyMedium?.copyWith(color: pnlColor(p.unrealized))),
+                    const SizedBox(width: 10),
+                    SizedBox(
+                      width: 60,
+                      child: Text(
+                        pct(p.unrealizedPct),
+                        textAlign: TextAlign.right,
+                        style: text.bodySmall?.copyWith(color: pnlColor(p.unrealizedPct)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+          ],
+          const SizedBox(height: 6),
+          Text(_footer(state), style: text.bodySmall?.copyWith(color: Colors.white38)),
+        ],
       ),
     );
   }
 
   static String _footer(ReceiverState state) {
+    if (state.quotesError != null) return state.quotesError!;
     final at = state.quotesAt;
-    if (state.quotesLoading) return 'Actualizando precios de Yahoo…';
-    if (at == null) return 'Pidiendo precios a Yahoo Finance…';
+    if (at == null) return 'Precios de Yahoo Finance';
     final open = state.quotes.values.any((q) => q.isMarketOpen);
-    return '${open ? 'Mercado abierto' : 'Mercado cerrado'} · precios de ${_hhmm(at)}';
+    return '${open ? 'Mercado abierto' : 'Mercado cerrado'} · Yahoo ${_hhmm(at)}';
   }
 }
 
-/// "Siguiente actualización 0:42": se redibuja cada segundo.
+class _MiniStat extends StatelessWidget {
+  const _MiniStat(this.label, this.value);
+
+  final String label;
+  final double? value;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: text.bodySmall?.copyWith(color: Colors.white54)),
+          Text(money(value), style: text.titleSmall?.copyWith(color: pnlColor(value))),
+        ],
+      ),
+    );
+  }
+}
+
+/// "⟳ 0:42" hasta la siguiente consulta a Yahoo; se redibuja cada segundo.
 class _Countdown extends StatefulWidget {
   const _Countdown({required this.until, this.style});
 
@@ -108,73 +145,6 @@ class _CountdownState extends State<_Countdown> {
     if (left < 0) left = 0;
     return Text('⟳ ${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}', style: widget.style);
   }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat(this.label, this.value, {this.big = false});
-
-  final String label;
-  final double? value;
-  final bool big;
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: text.titleSmall?.copyWith(color: Colors.white54)),
-          const SizedBox(height: 4),
-          Text(
-            money(value),
-            style: (big ? text.displayMedium : text.headlineMedium)?.copyWith(color: pnlColor(value)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PositionsTable extends StatelessWidget {
-  const _PositionsTable({required this.positions});
-
-  final List<Position> positions;
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final head = text.titleSmall?.copyWith(color: Colors.white54);
-    final cell = text.titleMedium;
-    const cols = {1: FlexColumnWidth(1.2), 2: FlexColumnWidth(0.8)};
-    return SingleChildScrollView(
-      child: Table(
-        columnWidths: cols,
-        defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-        children: [
-          TableRow(children: [
-            for (final h in ['Símbolo', 'Lado', 'Acciones', 'Invertido', 'Entrada', 'Precio Yahoo', 'Hoy', 'P&L', '%'])
-              Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(h, style: head)),
-          ]),
-          for (final p in positions)
-            TableRow(children: [
-              _cell(p.symbol, cell),
-              _cell(p.side == TradeSide.long ? 'Largo' : 'Corto', cell),
-              _cell(qtyText(p.qty), cell),
-              _cell(money(p.cost, sign: false), cell),
-              _cell(money(p.avgEntry, sign: false), cell),
-              _cell(p.quote == null ? '—' : money(p.quote!.price, sign: false), cell),
-              _cell(money(p.dayPnl(DateTime.now())), cell?.copyWith(color: pnlColor(p.dayPnl(DateTime.now())))),
-              _cell(money(p.unrealized), cell?.copyWith(color: pnlColor(p.unrealized))),
-              _cell(pct(p.unrealizedPct), cell?.copyWith(color: pnlColor(p.unrealizedPct))),
-            ]),
-        ],
-      ),
-    );
-  }
-
-  static Widget _cell(String s, TextStyle? style) =>
-      Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(s, style: style));
 }
 
 Color? pnlColor(double? v) {

@@ -9,7 +9,6 @@ import 'mask.dart';
 import 'server.dart';
 import 'state.dart';
 import 'trading.dart';
-import 'trading_dashboard.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -57,7 +56,6 @@ class ProyectorApp extends StatelessWidget {
         builder: (context, _) => switch (state.panel) {
           ReceiverPanel.home => HomeScreen(state: state),
           ReceiverPanel.qr => StatusScreen(state: state),
-          ReceiverPanel.trading => TradingDashboard(state: state),
         },
       ),
     );

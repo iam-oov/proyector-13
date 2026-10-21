@@ -372,7 +372,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
         if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
         await ProjectorClient(s).trading(show: show, trades: trades);
         tradingOnProjector = show;
-        status = show ? 'Tablero de trading en ${s.name}' : '${s.name} de vuelta al QR';
+        status = 'Estadísticas en el inicio de ${s.name}';
       });
 
   /// Si el tablero está en el proyector, cada cambio se refleja allá.

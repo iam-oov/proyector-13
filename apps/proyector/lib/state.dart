@@ -3,7 +3,7 @@ import 'package:shared/shared.dart';
 
 import 'identity.dart';
 
-enum ReceiverPanel { home, qr, trading }
+enum ReceiverPanel { home, qr }
 
 /// Lo que la pantalla del proyector muestra: el QR, dónde escucha, qué ha
 /// recibido y, si el teléfono lo pide, el tablero de trading.

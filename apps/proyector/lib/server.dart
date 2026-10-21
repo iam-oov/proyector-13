@@ -104,11 +104,10 @@ class ReceiverServer {
         return _json({'ok': false, 'error': 'trades inválidos: $e'}, 400);
       }
     }
-    if (body['show'] is bool) {
-      final show = body['show'] as bool;
-      state.showPanel(show ? ReceiverPanel.trading : ReceiverPanel.home);
-      // Si YouTube está al frente, el tablero no se vería: nos traemos al frente.
-      if (show) await bringToFront();
+    // Las estadísticas están en el inicio: "mostrar" = traer el inicio al frente.
+    if (body['show'] == true) {
+      state.showPanel(ReceiverPanel.home);
+      await bringToFront();
     }
     await onTradingChanged?.call();
     return _json({'ok': true, 'panel': state.panel.name, 'trades': state.trades.length});
