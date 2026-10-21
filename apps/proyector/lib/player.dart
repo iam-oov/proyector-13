@@ -21,6 +21,15 @@ Uri? youtubeUri({String? videoId, String? url}) {
   return null;
 }
 
+/// Trae esta app al frente (encima de YouTube) para mostrar el tablero.
+Future<void> bringToFront() async {
+  try {
+    await _launch.invokeMethod<bool>('bringToFront');
+  } on PlatformException {
+    // Si no se puede, el tablero queda listo para cuando el usuario vuelva a la app.
+  }
+}
+
 /// Abre el video en la app de YouTube del proyector (intent VIEW).
 Future<void> openVideo(Uri uri) async {
   try {

@@ -7,6 +7,7 @@ import 'now_page.dart';
 import 'playlists_page.dart';
 import 'screens_sheet.dart';
 import 'search_page.dart';
+import 'trading_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,6 +61,13 @@ class _HomeShellState extends State<HomeShell> {
           appBar: AppBar(
             title: Text(titles[tab]),
             actions: [
+              IconButton(
+                tooltip: 'Trading',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => TradingPage(model: model)),
+                ),
+                icon: const Icon(Icons.candlestick_chart_outlined),
+              ),
               ScreenChip(model: model),
               if (model.loggedIn)
                 IconButton(

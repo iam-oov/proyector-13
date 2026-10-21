@@ -66,6 +66,22 @@ class ProjectorClient {
     );
   }
 
+  /// Manda la bitácora y/o pide mostrar u ocultar el tablero de trading.
+  Future<void> trading({bool? show, List<Trade>? trades}) async {
+    final r = await http
+        .post(
+          _url('/trading'),
+          headers: {'content-type': 'application/json', ..._auth},
+          body: jsonEncode({
+            'show': ?show,
+            'trades': ?trades?.map((t) => t.toJson()).toList(),
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (r.statusCode == 401) throw const ProjectorUnauthorized();
+    if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
+  }
+
   Future<void> play(VideoCandidate video) async {
     final r = await http
         .post(

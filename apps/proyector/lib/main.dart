@@ -6,6 +6,8 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'identity.dart';
 import 'server.dart';
 import 'state.dart';
+import 'trading.dart';
+import 'trading_dashboard.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +21,9 @@ Future<void> main() async {
   }
   final state = ReceiverState(identity);
   if (loadError != null) state.add('No pude guardar la identidad: $loadError', error: true);
-  ReceiverServer(state).start().catchError((Object e) {
+  final trading = TradingController(state, await TradingStore.open());
+  await trading.init();
+  ReceiverServer(state, onTradingChanged: trading.onChanged).start().catchError((Object e) {
     state.add('No pude abrir el puerto ${state.port}: $e', error: true);
   });
   runApp(ProyectorApp(state: state));
@@ -40,7 +44,12 @@ class ProyectorApp extends StatelessWidget {
         colorSchemeSeed: const Color(0xFF7C4DFF),
         useMaterial3: true,
       ),
-      home: StatusScreen(state: state),
+      home: ListenableBuilder(
+        listenable: state,
+        builder: (context, _) => state.panel == ReceiverPanel.trading
+            ? TradingDashboard(state: state)
+            : StatusScreen(state: state),
+      ),
     );
   }
 }

@@ -47,6 +47,18 @@ class MainActivity : FlutterActivity() {
                     // Carpeta privada de la app, para guardar la identidad (id/token/nombre)
                     // en un JSON sin depender de plugins.
                     "filesDir" -> result.success(applicationContext.filesDir.absolutePath)
+                    // Trae el receptor al frente (p. ej. para mostrar el tablero de trading
+                    // encima de YouTube). Permitido desde segundo plano por SYSTEM_ALERT_WINDOW.
+                    "bringToFront" -> {
+                        try {
+                            val intent = Intent(applicationContext, MainActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                            applicationContext.startActivity(intent)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("front", e.message, null)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

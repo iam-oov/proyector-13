@@ -6,6 +6,15 @@ import 'package:shared/shared.dart';
 
 const _channel = MethodChannel('proyector/launch');
 
+/// Carpeta privada de la app (applicationContext.filesDir), o null si falla.
+Future<String?> appFilesDir() async {
+  try {
+    return await _channel.invokeMethod<String>('filesDir');
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Identidad de esta pantalla: id y token se generan una vez y sobreviven
 /// reinicios; van dentro del QR. El nombre se puede cambiar y se recuerdan
 /// los teléfonos que se han vinculado.
@@ -26,13 +35,8 @@ class ReceiverIdentity {
   String get name => _name;
 
   static Future<ReceiverIdentity> load() async {
-    File? file;
-    try {
-      final dir = await _channel.invokeMethod<String>('filesDir');
-      if (dir != null) file = File('$dir/identity.json');
-    } catch (_) {
-      file = null;
-    }
+    final dir = await appFilesDir();
+    final file = dir == null ? null : File('$dir/identity.json');
     if (file != null && await file.exists()) {
       try {
         final j = jsonDecode(await file.readAsString()) as Map<String, dynamic>;

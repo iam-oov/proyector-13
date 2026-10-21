@@ -7,6 +7,7 @@ import 'projector.dart';
 import 'screens.dart';
 import 'spotify.dart';
 import 'spotify_auth.dart';
+import 'trading_store.dart';
 import 'youtube.dart';
 
 /// Estado de la app: pantallas vinculadas, sesión, qué suena, playlists y el último envío.
@@ -50,6 +51,18 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   List<VideoCandidate> searchResults = [];
   bool searching = false;
 
+  // Trading: bitácora manual + precios de Yahoo mientras la página está abierta.
+  final _tradeStore = TradeStore();
+  final _yahoo = YahooFinance();
+  List<Trade> trades = [];
+  Map<String, Quote> quotes = {};
+  DateTime? quotesAt;
+  bool quotesLoading = false;
+  bool tradingOnProjector = false;
+  Timer? _quotesTimer;
+
+  PortfolioStats get tradingStats => PortfolioStats.compute(trades, quotes);
+
   Screen? get selectedScreen {
     for (final s in screens) {
       if (s.id == selectedScreenId) return s;
@@ -62,6 +75,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     screens = await _store.loadScreens();
     selectedScreenId = await _store.loadSelectedId();
     phoneName = await _store.loadPhoneName();
+    trades = await _tradeStore.load();
     if (selectedScreen == null && screens.isNotEmpty) selectedScreenId = screens.first.id;
     loggedIn = await auth.isLoggedIn;
     if (loggedIn && !await auth.hasAllScopes) {
@@ -293,6 +307,79 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // --- Trading -----------------------------------------------------------------
+
+  Future<void> addTrade(Trade t) async {
+    trades = [...trades, t];
+    await _saveTrades();
+  }
+
+  Future<void> closeTrade(String id, {required double exitPrice, DateTime? at}) async {
+    trades = [for (final t in trades) t.id == id ? t.close(exitPrice: exitPrice, at: at) : t];
+    await _saveTrades();
+  }
+
+  Future<void> deleteTrade(String id) async {
+    trades = [for (final t in trades) if (t.id != id) t];
+    await _saveTrades();
+  }
+
+  Future<void> _saveTrades() async {
+    await _tradeStore.save(trades);
+    notifyListeners();
+    unawaited(refreshQuotes());
+    unawaited(_pushTrading());
+  }
+
+  /// Precios de las posiciones abiertas (cada minuto mientras la página está abierta).
+  Future<void> refreshQuotes() async {
+    final symbols = trades.where((t) => t.isOpen).map((t) => t.symbol).toSet();
+    if (symbols.isEmpty || quotesLoading) return;
+    quotesLoading = true;
+    notifyListeners();
+    try {
+      final q = await _yahoo.quotes(symbols);
+      if (q.isNotEmpty) {
+        quotes = q;
+        quotesAt = DateTime.now();
+      }
+    } finally {
+      quotesLoading = false;
+      notifyListeners();
+    }
+  }
+
+  void startQuotePolling() {
+    _quotesTimer?.cancel();
+    unawaited(refreshQuotes());
+    _quotesTimer = Timer.periodic(const Duration(minutes: 1), (_) => refreshQuotes());
+  }
+
+  void stopQuotePolling() {
+    _quotesTimer?.cancel();
+    _quotesTimer = null;
+  }
+
+  /// Manda la bitácora al proyector y lo pone en modo Trading (o lo quita).
+  Future<void> showTradingOnProjector(bool show) => _run(() async {
+        final s = selectedScreen;
+        if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
+        await ProjectorClient(s).trading(show: show, trades: trades);
+        tradingOnProjector = show;
+        status = show ? 'Tablero de trading en ${s.name}' : '${s.name} de vuelta al QR';
+      });
+
+  /// Si el tablero está en el proyector, cada cambio se refleja allá.
+  Future<void> _pushTrading() async {
+    final s = selectedScreen;
+    if (s == null || !projectorOnline) return;
+    try {
+      await ProjectorClient(s).trading(trades: trades);
+    } catch (_) {
+      // El proyector no está: se manda completo la próxima vez que se muestre.
+    }
+  }
+
   // --- Enviar ------------------------------------------------------------------
 
   /// Manda a la pantalla activa el video de lo que suena en Spotify.
@@ -342,6 +429,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     _poll?.cancel();
     _followTimer?.cancel();
+    _quotesTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }

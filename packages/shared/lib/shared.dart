@@ -2,6 +2,7 @@
 library;
 
 export 'pairing.dart';
+export 'trading.dart';
 
 /// Lo que está sonando en Spotify.
 class Track {

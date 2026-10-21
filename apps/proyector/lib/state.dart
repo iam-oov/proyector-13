@@ -3,7 +3,10 @@ import 'package:shared/shared.dart';
 
 import 'identity.dart';
 
-/// Lo que la pantalla del proyector muestra: el QR, dónde escucha y qué ha recibido.
+enum ReceiverPanel { qr, trading }
+
+/// Lo que la pantalla del proyector muestra: el QR, dónde escucha, qué ha
+/// recibido y, si el teléfono lo pide, el tablero de trading.
 class ReceiverState extends ChangeNotifier {
   ReceiverState(this.identity);
 
@@ -12,12 +15,20 @@ class ReceiverState extends ChangeNotifier {
   int port = 8080;
   final List<ReceiverEvent> events = [];
 
+  ReceiverPanel panel = ReceiverPanel.qr;
+  List<Trade> trades = [];
+  Map<String, Quote> quotes = {};
+  DateTime? quotesAt;
+  String? quotesError;
+
   /// Contenido del QR. Null hasta que se conoce la IP.
   String? get pairingUri => host == null
       ? null
       : PairingPayload(id: identity.id, name: identity.name, host: host!, port: port, token: identity.token)
           .toUri()
           .toString();
+
+  PortfolioStats get stats => PortfolioStats.compute(trades, quotes);
 
   void listening(String host, int port) {
     this.host = host;
@@ -44,6 +55,29 @@ class ReceiverState extends ChangeNotifier {
     if (await identity.addPhone(name)) {
       add('🔗  $name conectado');
     }
+  }
+
+  void showPanel(ReceiverPanel p) {
+    if (panel == p) return;
+    panel = p;
+    notifyListeners();
+  }
+
+  void setTrades(List<Trade> t) {
+    trades = t;
+    notifyListeners();
+  }
+
+  void setQuotes(Map<String, Quote> q) {
+    quotes = q;
+    quotesAt = DateTime.now();
+    quotesError = null;
+    notifyListeners();
+  }
+
+  void quoteError(String message) {
+    quotesError = message;
+    notifyListeners();
   }
 
   void add(String message, {bool error = false}) {
