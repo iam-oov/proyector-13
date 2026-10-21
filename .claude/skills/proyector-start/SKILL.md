@@ -114,6 +114,20 @@ Con el título que eligió en el paso 2 (si eligió "Familia HG", no hace falta:
 por defecto). Funciona sin root: abre el receptor con el extra `homeTitle`, que lo guarda
 en el equipo. Se puede cambiar cuando sea con el mismo comando.
 
+## 4c. Hora
+
+Si `inspect` dice que la hora no coincide con la Mac:
+
+```
+tools/proyector-setup.sh timezone <ip>          # America/Guatemala (UTC−6 todo el año)
+tools/proyector-setup.sh timezone <ip> <zona>   # otra zona, p. ej. si el equipo está en otra región
+```
+
+Estos equipos traen datos de zona horaria anteriores a 2022 y creen que México todavía
+cambia de horario: con "Ciudad de México" adelantan una hora. Requiere root; sin root,
+explica cómo ponerla a mano (Ajustes → Fecha y hora → zona automática apagada → una zona
+UTC−6 sin horario de verano, como Guatemala o Costa Rica).
+
 ## 5. Quitar apps basura
 
 Ya cubierto en 2b (`debloat` trae la basura de Jixin y el malware de Rockchip). Nunca

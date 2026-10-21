@@ -10,6 +10,7 @@
 #   tools/proyector-setup.sh title   <ip> "<texto>" título del inicio (por defecto "Familia HG")
 #   tools/proyector-setup.sh debloat <ip> [--apply] quita apps basura/malware conocidas (sin --apply solo lista)
 #   tools/proyector-setup.sh bootup  <ip>           ADB por red al arrancar (con root)
+#   tools/proyector-setup.sh timezone <ip> [zona]   zona horaria fija (con root; ver TZ_DEFAULT)
 #   tools/proyector-setup.sh scan    <ip>           busca malware: apps disfrazadas, arranque sin Play, conexiones
 #   tools/proyector-setup.sh watch   <ip> [seg]     vigila si algo se instala solo (600 s por defecto)
 #
@@ -53,6 +54,12 @@ UNINSTALL=(
   com.define.shellservice com.jixin.filebrowser
   com.toofifi.miracast com.android.toofifi com.clap.netflix
 )
+
+# México quitó el horario de verano en 2022, pero estos equipos traen datos de zona
+# horaria más viejos (2021a, 2022a): con America/Mexico_City adelantan una hora y con
+# America/Chihuahua se atrasan al acabar octubre. Guatemala es UTC−6 todo el año
+# (la hora del centro de México) en cualquier versión de esos datos.
+TZ_DEFAULT=America/Guatemala
 
 die() { print -u2 "✕ $*"; exit 1; }
 ok() { print "✓ $*"; }
@@ -123,6 +130,10 @@ inspect() {
     if [[ -n $(sh_ 'su 0 ls /data/bootup.sh') ]]; then ok "bootup.sh instalado (ADB vuelve solo al reiniciar)"
     else todo "firmware Jixin sin bootup.sh: el ADB se apaga en cada reinicio"; fi
   fi
+  local dev_t mac_t
+  dev_t=$(sh_ date +%H:%M); mac_t=$(date +%H:%M)
+  if [[ $dev_t == $mac_t ]]; then ok "hora correcta ($dev_t, $(sh_ getprop persist.sys.timezone))"
+  else todo "hora del equipo $dev_t ≠ Mac $mac_t ($(sh_ getprop persist.sys.timezone)): falta \`timezone\`"; fi
   print "Red:      $(sh_ ip route | awk '/wlan0|eth0/ && /src/ { print $1, "→ IP", $NF; exit }')"
 }
 
@@ -151,6 +162,16 @@ set_home() {
   sh_ input keyevent KEYCODE_HOME
   [[ $(home_activity) == $APP/* ]] || die "el inicio no cambió (revertir: adb -s $S shell pm enable $oem)"
   ok "inicio = nuestro launcher · revertir: adb -s $S shell pm enable $oem"
+}
+
+set_timezone() {
+  local zone=${1:-$TZ_DEFAULT}
+  has_root || die "sin root: cambia la zona a mano en Ajustes → Fecha y hora"
+  # Sin root el shell no tiene SUGGEST_MANUAL_TIME_AND_ZONE.
+  sh_ settings put global auto_time_zone 0
+  sh_ "su 0 cmd time_zone_detector suggest_manual_time_zone --zone_id $zone" >/dev/null
+  [[ $(sh_ getprop persist.sys.timezone) == $zone ]] || die "no se aplicó la zona $zone"
+  ok "zona horaria $zone · hora del equipo $(sh_ date +%H:%M), Mac $(date +%H:%M)"
 }
 
 set_title() {
@@ -241,7 +262,12 @@ scan() {
   if has_root; then
     sh_ "su 0 netstat -tnp" | awk '$6 == "ESTABLISHED" && $5 !~ /^(127\.|::1|::ffff:127\.)/ { print $5, $7 }' |
       grep -vE ' [0-9]+/(com\.google\.|com\.android\.|adbd|netd|system_server|dev\.valdo)' |
-      while read dest proc; do print "⚠ conexión: $proc → $dest"; done
+      while read dest proc; do
+        # Las apps de Play Store (Spotify, Disney+…) se conectan a lo suyo: solo aviso.
+        inst=$(sh_ dumpsys package ${proc#*/} | sed -n 's/.*installerPackageName=\([^ ]*\).*/\1/p' | head -1)
+        if [[ $inst == com.android.vending ]]; then print "• conexión (app de Play Store): $proc → $dest"
+        else print "⚠ conexión: $proc → $dest"; fi
+      done
   fi
   # 4) Malware ya conocido.
   for p in $UNINSTALL; do installed $p && print "⚠ conocido: $p"; done
@@ -280,6 +306,7 @@ case $cmd in
   home) [[ -n ${3:-} ]] || die "falta el paquete del launcher del fabricante"; set_home "$3" ;;
   debloat) debloat "${3:-}" ;;
   title) set_title "${3:-}" ;;
+  timezone) set_timezone "${3:-}" ;;
   bootup) bootup ;;
   scan) scan ;;
   watch) watch_ "${3:-600}" ;;
