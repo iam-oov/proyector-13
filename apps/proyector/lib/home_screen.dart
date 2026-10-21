@@ -27,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _error;
   // Al volver al inicio se relee la lista: así aparecen las apps recién instaladas.
   late final _lifecycle = AppLifecycleListener(onResume: _load);
+  final _firstApp = FocusNode();
 
   @override
   void initState() {
@@ -38,13 +39,22 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _lifecycle.dispose();
+    _firstApp.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     try {
       final apps = await installedApps();
-      if (mounted) setState(() => _apps = apps);
+      if (!mounted) return;
+      final first = _apps.isEmpty && apps.isNotEmpty;
+      setState(() => _apps = apps);
+      // Las apps llegan después del primer frame: el foco inicial va a la primera.
+      if (first) {
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _firstApp.requestFocus(),
+        );
+      }
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
@@ -100,62 +110,96 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: [
-                        for (final (i, app) in _apps.indexed)
-                          HomeTile(
-                            label: app.label,
-                            icon: app.icon == null
-                                ? const Icon(Icons.apps, size: 34)
-                                : Image.memory(
-                                    app.icon!,
-                                    width: 56,
-                                    height: 56,
-                                    filterQuality: FilterQuality.medium,
+                    child: LayoutBuilder(
+                      builder: (context, box) {
+                        // Columnas según cuántas apps haya, para llenar filas
+                        // completas a todo lo ancho (6 apps = 2 filas de 3).
+                        const gap = 12.0;
+                        final n = _apps.length;
+                        final cols = n <= 6 ? 3 : (n <= 8 ? 4 : 5);
+                        final w = ((box.maxWidth - gap * (cols - 1)) / cols)
+                            .floorToDouble();
+                        final sw = ((box.maxWidth - gap * 2) / 3)
+                            .floorToDouble();
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: gap,
+                              runSpacing: gap,
+                              children: [
+                                for (final (i, app) in _apps.indexed)
+                                  HomeTile(
+                                    width: w,
+                                    label: app.label,
+                                    icon: app.icon == null
+                                        ? const Icon(Icons.apps, size: 34)
+                                        : Image.memory(
+                                            app.icon!,
+                                            width: 56,
+                                            height: 56,
+                                            filterQuality: FilterQuality.medium,
+                                          ),
+                                    focusNode: i == 0 ? _firstApp : null,
+                                    onTap: () =>
+                                        _open(() => launchPackage(app.package)),
                                   ),
-                            autofocus: i == 0,
-                            onTap: () =>
-                                _open(() => launchPackage(app.package)),
-                          ),
-                        HomeTile(
-                          label: 'Vincular teléfono',
-                          icon: const Icon(Icons.qr_code_2, size: 34),
-                          color: const Color(0xFF2D2640),
-                          autofocus: _apps.isEmpty,
-                          onTap: () => state.showPanel(ReceiverPanel.qr),
-                        ),
-                        // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
-                        HomeTile(
-                          label: 'Ajustes',
-                          icon: const Icon(Icons.settings, size: 34),
-                          color: const Color(0xFF2B2B2B),
-                          onTap: () => _open(
-                            () => launchComponent(
-                              'com.jixin.settings5',
-                              'com.jixin.settings5.SettingsActivity',
+                              ],
                             ),
-                          ),
-                        ),
-                        // Los de Android TV: apps, cuentas, mandos, redes.
-                        HomeTile(
-                          label: 'Ajustes Android',
-                          icon: const Icon(Icons.tune, size: 34),
-                          color: const Color(0xFF2B2B2B),
-                          onTap: () => _open(
-                            () => launchComponent(
-                              'com.android.tv.settings',
-                              'com.android.tv.settings.MainSettings',
+                            const SizedBox(height: gap),
+                            // Accesos del sistema: una fila compacta debajo de las apps.
+                            Row(
+                              children: [
+                                HomeTile(
+                                  width: sw,
+                                  compact: true,
+                                  label: 'Vincular teléfono',
+                                  icon: const Icon(Icons.qr_code_2, size: 24),
+                                  color: const Color(0xFF2D2640),
+                                  autofocus: _apps.isEmpty,
+                                  onTap: () =>
+                                      state.showPanel(ReceiverPanel.qr),
+                                ),
+                                const SizedBox(width: gap),
+                                // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
+                                HomeTile(
+                                  width: sw,
+                                  compact: true,
+                                  label: 'Ajustes',
+                                  icon: const Icon(Icons.settings, size: 24),
+                                  color: const Color(0xFF2B2B2B),
+                                  onTap: () => _open(
+                                    () => launchComponent(
+                                      'com.jixin.settings5',
+                                      'com.jixin.settings5.SettingsActivity',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: gap),
+                                // Los de Android TV: apps, cuentas, mandos, redes.
+                                HomeTile(
+                                  width: sw,
+                                  compact: true,
+                                  label: 'Ajustes Android',
+                                  icon: const Icon(Icons.tune, size: 24),
+                                  color: const Color(0xFF2B2B2B),
+                                  onTap: () => _open(
+                                    () => launchComponent(
+                                      'com.android.tv.settings',
+                                      'com.android.tv.settings.MainSettings',
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                          ),
-                        ),
-                      ],
+                          ],
+                        );
+                      },
                     ),
                   ),
                   // Estadísticas de trading (solo si hay movimientos registrados).
@@ -188,22 +232,21 @@ class _HomeScreenState extends State<HomeScreen> {
                 NowPlayingBar(state: state),
                 const SizedBox(height: 16),
               ],
-              Text('Últimos envíos', style: text.titleMedium),
-              const SizedBox(height: 8),
-              if (state.events.isEmpty)
-                Text(
-                  'Todavía nada. Manda un video desde el teléfono.',
-                  style: text.bodyMedium?.copyWith(color: Colors.white38),
+              // Último envío en una sola línea.
+              Text(
+                state.events.isEmpty
+                    ? 'Último envío: todavía nada. Manda un video desde el teléfono.'
+                    : 'Último envío · ${_hhmm(state.events.first.at)}  ${state.events.first.message}',
+                style: text.bodyMedium?.copyWith(
+                  color: state.events.isEmpty
+                      ? Colors.white38
+                      : (state.events.first.error
+                            ? Colors.redAccent
+                            : Colors.white70),
                 ),
-              for (final e in state.events.take(1))
-                Text(
-                  '${_hhmm(e.at)}  ${e.message}',
-                  style: text.bodyMedium?.copyWith(
-                    color: e.error ? Colors.redAccent : Colors.white70,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
         ),
@@ -445,6 +488,9 @@ class HomeTile extends StatefulWidget {
     required this.onTap,
     this.color,
     this.autofocus = false,
+    this.width = 140,
+    this.compact = false,
+    this.focusNode,
   });
 
   final String label;
@@ -452,6 +498,11 @@ class HomeTile extends StatefulWidget {
   final VoidCallback onTap;
   final Color? color;
   final bool autofocus;
+  final double width;
+  final FocusNode? focusNode;
+
+  /// Fila baja con ícono y texto lado a lado (accesos del sistema).
+  final bool compact;
 
   @override
   State<HomeTile> createState() => _HomeTileState();
@@ -463,6 +514,12 @@ class _HomeTileState extends State<HomeTile> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final label = Text(
+      widget.label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+    );
     return AnimatedScale(
       scale: _focused ? 1.06 : 1,
       duration: const Duration(milliseconds: 120),
@@ -471,13 +528,17 @@ class _HomeTileState extends State<HomeTile> {
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           autofocus: widget.autofocus,
+          focusNode: widget.focusNode,
           borderRadius: BorderRadius.circular(16),
           onTap: widget.onTap,
           onFocusChange: (f) => setState(() => _focused = f),
           child: Container(
-            width: 140,
-            height: 96,
-            padding: const EdgeInsets.all(12),
+            width: widget.width,
+            height: widget.compact ? 52 : 96,
+            padding: EdgeInsets.symmetric(
+              horizontal: widget.compact ? 14 : 12,
+              vertical: widget.compact ? 0 : 12,
+            ),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
@@ -485,22 +546,19 @@ class _HomeTileState extends State<HomeTile> {
                 width: 3,
               ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                widget.icon,
-                Text(
-                  widget.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
+            child: widget.compact
+                ? Row(
+                    children: [
+                      widget.icon,
+                      const SizedBox(width: 10),
+                      Expanded(child: label),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [widget.icon, label],
                   ),
-                ),
-              ],
-            ),
           ),
         ),
       ),
