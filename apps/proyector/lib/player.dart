@@ -21,6 +21,18 @@ Uri? youtubeUri({String? videoId, String? url}) {
   return null;
 }
 
+/// Volumen del proyector: `{level, max, muted}`.
+Future<Map<String, Object?>> getVolume() async =>
+    (await _launch.invokeMethod<Map<Object?, Object?>>('getVolume'))!.cast<String, Object?>();
+
+Future<Map<String, Object?>> setVolume({int? level, int? delta, bool? mute}) async =>
+    (await _launch.invokeMethod<Map<Object?, Object?>>('setVolume', {
+      'level': ?level,
+      'delta': ?delta,
+      'mute': ?mute,
+    }))!
+        .cast<String, Object?>();
+
 /// Trae esta app al frente (encima de YouTube) para mostrar el tablero.
 Future<void> bringToFront() async {
   try {

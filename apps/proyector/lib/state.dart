@@ -16,6 +16,9 @@ class ReceiverState extends ChangeNotifier {
   final List<ReceiverEvent> events = [];
 
   ReceiverPanel panel = ReceiverPanel.home;
+
+  /// Si nuestra app está al frente (si no, normalmente YouTube).
+  bool appInForeground = true;
   List<Trade> trades = [];
   Map<String, Quote> quotes = {};
   DateTime? quotesAt;

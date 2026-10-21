@@ -106,6 +106,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       projectorOnline = h != null && h.id == s.id;
       screenSpotifyLinked = projectorOnline && h!.spotifyLinked;
       screenFollowing = projectorOnline && h!.spotifyFollowing;
+      volume = projectorOnline ? await ProjectorClient(s).volume() : null;
       if (projectorOnline) {
         // La pantalla es dueña de su nombre: si la renombró otro teléfono, nos enteramos aquí.
         if (h!.name != s.name) await _updateScreen(s.copyWith(name: h.name));
@@ -424,10 +425,38 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> showTradingOnProjector(bool show) => _run(() async {
         final s = selectedScreen;
         if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
-        await ProjectorClient(s).trading(show: show, trades: trades);
+        final mode = await ProjectorClient(s).trading(show: show, trades: trades);
+        tradingOverlay = mode == 'overlay';
         tradingOnProjector = show;
-        status = 'Estadísticas en el inicio de ${s.name}';
+        status = tradingOverlay
+            ? 'Tus acciones flotan encima del video (se quitan solas en 45 s)'
+            : 'Estadísticas en el inicio de ${s.name}';
       });
+
+  /// La tarjeta de trading flotando encima del video en el proyector.
+  bool tradingOverlay = false;
+
+  Future<void> hideTradingOverlay() => _run(() async {
+        final s = selectedScreen;
+        if (s == null) return;
+        await ProjectorClient(s).trading(overlay: false);
+        tradingOverlay = false;
+        status = 'Video en grande otra vez';
+      });
+
+  // --- Volumen del proyector -------------------------------------------------------
+
+  ({int level, int max, bool muted})? volume;
+
+  Future<void> changeVolume({int? level, int? delta, bool? mute}) async {
+    final s = selectedScreen;
+    if (s == null) return;
+    final v = await ProjectorClient(s).volume(level: level, delta: delta, mute: mute);
+    if (v != null) {
+      volume = v;
+      notifyListeners();
+    }
+  }
 
   /// Si el tablero está en el proyector, cada cambio se refleja allá.
   Future<void> _pushTrading() async {

@@ -28,6 +28,7 @@ class NowPage extends StatelessWidget {
               online: model.projectorOnline,
               mismatch: model.screenIdMismatch,
             ),
+            if (model.projectorOnline && model.volume != null) VolumeControl(model: model),
             const SizedBox(height: 20),
           ],
           if (!Config.hasSpotify)
@@ -144,6 +145,50 @@ class PairCallToAction extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Volumen del proyector: silenciar, −/+ y deslizador (se aplica al soltar).
+class VolumeControl extends StatefulWidget {
+  const VolumeControl({super.key, required this.model});
+
+  final ControlModel model;
+
+  @override
+  State<VolumeControl> createState() => _VolumeControlState();
+}
+
+class _VolumeControlState extends State<VolumeControl> {
+  double? _dragging;
+
+  @override
+  Widget build(BuildContext context) {
+    final v = widget.model.volume!;
+    final value = _dragging ?? v.level.toDouble();
+    return Row(
+      children: [
+        IconButton(
+          tooltip: v.muted ? 'Quitar silencio' : 'Silenciar',
+          onPressed: () => widget.model.changeVolume(mute: !v.muted),
+          icon: Icon(v.muted ? Icons.volume_off : Icons.volume_up),
+        ),
+        IconButton(onPressed: () => widget.model.changeVolume(delta: -1), icon: const Icon(Icons.remove)),
+        Expanded(
+          child: Slider(
+            value: value.clamp(0, v.max.toDouble()),
+            max: v.max.toDouble(),
+            divisions: v.max,
+            label: '${value.round()}',
+            onChanged: (x) => setState(() => _dragging = x),
+            onChangeEnd: (x) async {
+              await widget.model.changeVolume(level: x.round());
+              if (mounted) setState(() => _dragging = null);
+            },
+          ),
+        ),
+        IconButton(onPressed: () => widget.model.changeVolume(delta: 1), icon: const Icon(Icons.add)),
+      ],
     );
   }
 }

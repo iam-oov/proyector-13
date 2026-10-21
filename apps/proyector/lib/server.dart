@@ -12,16 +12,18 @@ import 'mask.dart';
 import 'player.dart';
 import 'spotify_follow.dart';
 import 'state.dart';
+import 'stats_overlay.dart';
 
 /// Servidor HTTP en la LAN. El teléfono manda `POST /play {"videoId": "..."}`
 /// con el token que viene en el QR (`Authorization: Bearer <token>`).
 class ReceiverServer {
-  ReceiverServer(this.state, {this.port = 8080, this.onTradingChanged, this.mask, this.spotify});
+  ReceiverServer(this.state, {this.port = 8080, this.onTradingChanged, this.mask, this.spotify, this.stats});
 
   final ReceiverState state;
   final int port;
   final MaskController? mask;
   final SpotifyFollower? spotify;
+  final StatsOverlayController? stats;
 
   /// Se llama después de cada POST /trading (persistir, pedir precios).
   final Future<void> Function()? onTradingChanged;
@@ -34,7 +36,9 @@ class ReceiverServer {
       ..post('/play', _auth(_play))
       ..post('/trading', _auth(_trading))
       ..post('/mask', _auth(_mask))
-      ..post('/spotify', _auth(_spotify));
+      ..post('/spotify', _auth(_spotify))
+      ..get('/volume', _auth(_getVolume))
+      ..post('/volume', _auth(_setVolume));
     final handler = const Pipeline().addMiddleware(_cors()).addHandler(router.call);
     await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
     state.listening(await _lanAddress() ?? '0.0.0.0', port);
@@ -135,13 +139,51 @@ class ReceiverServer {
         return _json({'ok': false, 'error': 'trades inválidos: $e'}, 400);
       }
     }
-    // Las estadísticas están en el inicio: "mostrar" = traer el inicio al frente.
+    // "Mostrar": si hay otra app al frente (p. ej. YouTube con música), la
+    // tarjeta flota encima del video sin interrumpirlo; si el inicio está al
+    // frente, las estadísticas ya se ven ahí.
+    var mode = 'none';
     if (body['show'] == true) {
-      state.showPanel(ReceiverPanel.home);
-      await bringToFront();
+      if (state.appInForeground || stats == null) {
+        state.showPanel(ReceiverPanel.home);
+        await bringToFront();
+        mode = 'home';
+      } else {
+        await onTradingChanged?.call();
+        await stats!.show();
+        mode = 'overlay';
+      }
     }
-    await onTradingChanged?.call();
-    return _json({'ok': true, 'panel': state.panel.name, 'trades': state.trades.length});
+    if (body['overlay'] == false) await stats?.hide();
+    if (mode != 'overlay') await onTradingChanged?.call();
+    return _json({
+      'ok': true,
+      'mode': mode,
+      'overlay': stats?.visible ?? false,
+      'trades': state.trades.length,
+    });
+  }
+
+  Future<Response> _getVolume(Request _) async => _json({'ok': true, ...await getVolume()});
+
+  /// `{"level": 0..max}`, `{"delta": 1|-1}` o `{"mute": true|false}`.
+  Future<Response> _setVolume(Request request) async {
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (_) {
+      return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
+    }
+    try {
+      final v = await setVolume(
+        level: (body['level'] as num?)?.toInt(),
+        delta: (body['delta'] as num?)?.toInt(),
+        mute: body['mute'] as bool?,
+      );
+      return _json({'ok': true, ...v});
+    } catch (e) {
+      return _json({'ok': false, 'error': '$e'}, 500);
+    }
   }
 
   /// Máscara de figura libre: `{"shapes": [[x,y,…],…], "feather": 0.02, "outline": true}`

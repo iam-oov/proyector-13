@@ -65,14 +65,21 @@ class _TradingPageState extends State<TradingPage> {
               Row(
                 children: [
                   Expanded(
-                    // Las estadísticas viven en el inicio del proyector: esto lo trae al frente.
-                    child: FilledButton.icon(
-                      onPressed: model.busy || !model.projectorOnline
-                          ? null
-                          : () => model.showTradingOnProjector(true),
-                      icon: const Icon(Icons.tv),
-                      label: const Text('Ver en el proyector'),
-                    ),
+                    // Si el proyector está en el inicio, lo trae al frente; si está
+                    // con un video, la tarjeta flota encima sin interrumpirlo.
+                    child: model.tradingOverlay
+                        ? OutlinedButton.icon(
+                            onPressed: model.busy ? null : model.hideTradingOverlay,
+                            icon: const Icon(Icons.fullscreen),
+                            label: const Text('Quitar del video'),
+                          )
+                        : FilledButton.icon(
+                            onPressed: model.busy || !model.projectorOnline
+                                ? null
+                                : () => model.showTradingOnProjector(true),
+                            icon: const Icon(Icons.tv),
+                            label: const Text('Ver en el proyector'),
+                          ),
                   ),
                 ],
               ),

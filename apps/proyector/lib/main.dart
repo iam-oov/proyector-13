@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'identity.dart';
 import 'mask.dart';
 import 'server.dart';
 import 'spotify_follow.dart';
+import 'stats_overlay.dart';
 import 'state.dart';
 import 'trading.dart';
 
@@ -37,7 +39,17 @@ Future<void> main() async {
   } catch (e) {
     state.add('Spotify no disponible: $e', error: true);
   }
-  ReceiverServer(state, onTradingChanged: trading.onChanged, mask: mask, spotify: spotify)
+  final stats = StatsOverlayController(state);
+  // ¿Estamos al frente o hay otra app (YouTube)? Decide si "mostrar trading"
+  // trae el inicio o pone la tarjeta flotante encima del video.
+  AppLifecycleListener(
+    onResume: () {
+      state.appInForeground = true;
+      unawaited(stats.hide()); // el inicio ya muestra las estadísticas
+    },
+    onPause: () => state.appInForeground = false,
+  );
+  ReceiverServer(state, onTradingChanged: trading.onChanged, mask: mask, spotify: spotify, stats: stats)
       .start()
       .catchError((Object e) {
     state.add('No pude abrir el puerto ${state.port}: $e', error: true);

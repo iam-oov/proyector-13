@@ -79,20 +79,44 @@ class ProjectorClient {
     );
   }
 
-  /// Manda la bitácora y/o pide mostrar u ocultar el tablero de trading.
-  Future<void> trading({bool? show, List<Trade>? trades}) async {
+  /// Manda la bitácora y/o pide mostrar las estadísticas. Devuelve dónde quedaron:
+  /// `home` (el inicio al frente) u `overlay` (tarjeta encima del video).
+  Future<String> trading({bool? show, bool? overlay, List<Trade>? trades}) async {
     final r = await http
         .post(
           _url('/trading'),
           headers: {'content-type': 'application/json', ..._auth},
           body: jsonEncode({
             'show': ?show,
+            'overlay': ?overlay,
             'trades': ?trades?.map((t) => t.toJson()).toList(),
           }),
         )
         .timeout(const Duration(seconds: 10));
     if (r.statusCode == 401) throw const ProjectorUnauthorized();
     if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
+    return (jsonDecode(r.body) as Map<String, dynamic>)['mode'] as String? ?? 'none';
+  }
+
+  /// Volumen del proyector: `(level, max, muted)` o null si no responde.
+  Future<({int level, int max, bool muted})?> volume({int? level, int? delta, bool? mute}) async {
+    try {
+      final change = level != null || delta != null || mute != null;
+      final r = change
+          ? await http
+              .post(
+                _url('/volume'),
+                headers: {'content-type': 'application/json', ..._auth},
+                body: jsonEncode({'level': ?level, 'delta': ?delta, 'mute': ?mute}),
+              )
+              .timeout(const Duration(seconds: 4))
+          : await http.get(_url('/volume'), headers: _auth).timeout(const Duration(seconds: 3));
+      if (r.statusCode != 200) return null;
+      final j = jsonDecode(r.body) as Map<String, dynamic>;
+      return (level: j['level'] as int, max: j['max'] as int, muted: j['muted'] == true);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Máscara de figura libre: polígonos normalizados 0..1. `save: false` para

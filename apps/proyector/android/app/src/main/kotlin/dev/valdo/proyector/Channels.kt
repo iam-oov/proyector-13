@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.media.AudioManager
 import android.net.Uri
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -68,6 +69,51 @@ object Channels {
                             result.error("mask", e.message, null)
                         }
                     }
+                    // Volumen del proyector (STREAM_MUSIC). FLAG_SHOW_UI muestra la barra
+                    // del sistema encima de lo que se esté viendo.
+                    "getVolume" -> result.success(volume(context))
+                    "setVolume" -> {
+                        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                        val level = call.argument<Int>("level")
+                        val delta = call.argument<Int>("delta")
+                        val mute = call.argument<Boolean>("mute")
+                        try {
+                            when {
+                                mute != null -> am.adjustStreamVolume(
+                                    AudioManager.STREAM_MUSIC,
+                                    if (mute) AudioManager.ADJUST_MUTE else AudioManager.ADJUST_UNMUTE,
+                                    AudioManager.FLAG_SHOW_UI,
+                                )
+                                level != null -> am.setStreamVolume(
+                                    AudioManager.STREAM_MUSIC,
+                                    level.coerceIn(0, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC)),
+                                    AudioManager.FLAG_SHOW_UI,
+                                )
+                                delta != null -> am.adjustStreamVolume(
+                                    AudioManager.STREAM_MUSIC,
+                                    if (delta > 0) AudioManager.ADJUST_RAISE else AudioManager.ADJUST_LOWER,
+                                    AudioManager.FLAG_SHOW_UI,
+                                )
+                            }
+                            result.success(volume(context))
+                        } catch (e: Exception) {
+                            result.error("volume", e.message, null)
+                        }
+                    }
+                    // Tarjeta de trading encima del video (sustituto del PiP).
+                    "showStats" -> {
+                        try {
+                            @Suppress("UNCHECKED_CAST")
+                            StatsOverlay.show(context, (call.arguments as Map<String, Any?>))
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.error("stats", e.message, null)
+                        }
+                    }
+                    "hideStats" -> {
+                        StatsOverlay.hide(context)
+                        result.success(true)
+                    }
                     "clearMask" -> {
                         try {
                             MaskOverlay.hide(context)
@@ -79,6 +125,15 @@ object Channels {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun volume(context: Context): Map<String, Any> {
+        val am = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        return mapOf(
+            "level" to am.getStreamVolume(AudioManager.STREAM_MUSIC),
+            "max" to am.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            "muted" to am.isStreamMute(AudioManager.STREAM_MUSIC),
+        )
     }
 
     private fun start(context: Context, result: MethodChannel.Result, intent: Intent) {
