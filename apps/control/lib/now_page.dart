@@ -55,13 +55,38 @@ class NowPage extends StatelessWidget {
                 ),
               ),
             ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Seguir a Spotify'),
-              subtitle: const Text('Al cambiar la canción manda el video solo (con esta app abierta)'),
-              value: model.autoFollow,
-              onChanged: model.setAutoFollow,
-            ),
+            if (model.screenSpotifyLinked) ...[
+              // El proyector tiene su propia sesión: sigue la música aunque el teléfono esté guardado.
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Seguir a Spotify'),
+                subtitle: Text('${model.selectedScreen?.name ?? 'El proyector'} cambia el video solo, '
+                    'aunque guardes el teléfono'),
+                value: model.screenFollowing,
+                onChanged: model.busy ? null : model.setScreenFollowing,
+              ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: model.busy ? null : model.unlinkSpotifyFromScreen,
+                  child: const Text('Desvincular Spotify del proyector'),
+                ),
+              ),
+            ] else ...[
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Seguir a Spotify'),
+                subtitle: const Text('Al cambiar la canción manda el video solo (con esta app abierta)'),
+                value: model.autoFollow,
+                onChanged: model.setAutoFollow,
+              ),
+              if (model.projectorOnline)
+                OutlinedButton.icon(
+                  onPressed: model.busy ? null : model.linkSpotifyToScreen,
+                  icon: const Icon(Icons.link),
+                  label: const Text('Que el proyector siga a Spotify solo'),
+                ),
+            ],
           ],
           const SizedBox(height: 16),
           if (model.error != null) Notice(model.error!, error: true),

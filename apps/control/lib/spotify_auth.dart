@@ -40,7 +40,11 @@ class SpotifyAuth {
 
   Future<void> logout() => _storage.delete(key: _key);
 
-  Future<void> login() async {
+  Future<void> login() async => _save(await authorize());
+
+  /// Hace el login PKCE y devuelve el token sin guardarlo. Se usa también para
+  /// darle al proyector su propia sesión (cadena de refresh independiente).
+  Future<Map<String, dynamic>> authorize({List<String>? scopes}) async {
     final verifier = _randomString(64);
     final challenge = base64UrlEncode(sha256.convert(ascii.encode(verifier)).bytes).replaceAll('=', '');
     final redirect = Uri.parse(Config.spotifyRedirectUri);
@@ -48,7 +52,7 @@ class SpotifyAuth {
       'client_id': Config.spotifyClientId,
       'response_type': 'code',
       'redirect_uri': redirect.toString(),
-      'scope': _scopes,
+      'scope': scopes?.join(' ') ?? _scopes,
       'code_challenge_method': 'S256',
       'code_challenge': challenge,
     });
@@ -59,14 +63,13 @@ class SpotifyAuth {
         throw StateError('No se pudo abrir el navegador');
       }
       final code = await _waitForCode(server, redirect.path);
-      final token = await _tokenRequest({
+      return await _tokenRequest({
         'grant_type': 'authorization_code',
         'code': code,
         'redirect_uri': redirect.toString(),
         'client_id': Config.spotifyClientId,
         'code_verifier': verifier,
       });
-      await _save(token);
     } finally {
       await server.close(force: true);
     }

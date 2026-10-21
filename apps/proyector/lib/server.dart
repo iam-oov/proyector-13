@@ -10,16 +10,18 @@ import 'package:shelf_router/shelf_router.dart';
 
 import 'mask.dart';
 import 'player.dart';
+import 'spotify_follow.dart';
 import 'state.dart';
 
 /// Servidor HTTP en la LAN. El teléfono manda `POST /play {"videoId": "..."}`
 /// con el token que viene en el QR (`Authorization: Bearer <token>`).
 class ReceiverServer {
-  ReceiverServer(this.state, {this.port = 8080, this.onTradingChanged, this.mask});
+  ReceiverServer(this.state, {this.port = 8080, this.onTradingChanged, this.mask, this.spotify});
 
   final ReceiverState state;
   final int port;
   final MaskController? mask;
+  final SpotifyFollower? spotify;
 
   /// Se llama después de cada POST /trading (persistir, pedir precios).
   final Future<void> Function()? onTradingChanged;
@@ -31,7 +33,8 @@ class ReceiverServer {
       ..post('/pair', _auth(_pair))
       ..post('/play', _auth(_play))
       ..post('/trading', _auth(_trading))
-      ..post('/mask', _auth(_mask));
+      ..post('/mask', _auth(_mask))
+      ..post('/spotify', _auth(_spotify));
     final handler = const Pipeline().addMiddleware(_cors()).addHandler(router.call);
     await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
     state.listening(await _lanAddress() ?? '0.0.0.0', port);
@@ -65,7 +68,35 @@ class ReceiverServer {
         'version': receiverApiVersion,
         'id': state.identity.id,
         'name': state.identity.name,
+        'spotify': {'linked': state.spotifyLinked, 'following': state.spotifyFollowing},
       });
+
+  /// Spotify del proyector:
+  /// - `{"link": {"clientId": "...", "token": {access_token, refresh_token, expires_at, …}}}`
+  /// - `{"following": true|false}`
+  /// - `{"unlink": true}`
+  Future<Response> _spotify(Request request) async {
+    final s = spotify;
+    if (s == null) return _json({'ok': false, 'error': 'Spotify no disponible'}, 500);
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (_) {
+      return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
+    }
+    final link = body['link'];
+    if (link is Map) {
+      final clientId = link['clientId']?.toString();
+      final token = (link['token'] as Map?)?.cast<String, dynamic>();
+      if (clientId == null || token == null || token['refresh_token'] == null) {
+        return _json({'ok': false, 'error': 'faltan clientId o token'}, 400);
+      }
+      await s.link(clientId: clientId, token: token);
+    }
+    if (body['following'] is bool) await s.setFollowing(body['following'] as bool);
+    if (body['unlink'] == true) await s.unlink();
+    return _json({'ok': true, 'linked': state.spotifyLinked, 'following': state.spotifyFollowing});
+  }
 
   /// El teléfono se presenta (y opcionalmente renombra la pantalla).
   Future<Response> _pair(Request request) async {

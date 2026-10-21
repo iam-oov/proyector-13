@@ -82,6 +82,22 @@ class ReceiverState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Spotify del propio proyector (ver spotify_follow.dart).
+  bool spotifyLinked = false;
+  bool spotifyFollowing = false;
+  Track? nowPlaying;
+
+  /// Solo notifica si algo visible cambió (se llama cada 5 s).
+  void setSpotify({bool? linked, bool? following, Track? nowPlaying, bool clearNowPlaying = false}) {
+    String snap() => '$spotifyLinked|$spotifyFollowing|${this.nowPlaying}|${this.nowPlaying?.isPlaying}';
+    final before = snap();
+    if (linked != null) spotifyLinked = linked;
+    if (following != null) spotifyFollowing = following;
+    if (nowPlaying != null) this.nowPlaying = nowPlaying;
+    if (clearNowPlaying || linked == false) this.nowPlaying = null;
+    if (snap() != before) notifyListeners();
+  }
+
   void setQuotesLoading(bool loading, {DateTime? nextAt}) {
     quotesLoading = loading;
     if (nextAt != null) nextQuotesAt = nextAt;

@@ -160,6 +160,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               const Spacer(),
+              if (state.spotifyLinked && state.nowPlaying != null) ...[
+                NowPlayingBar(state: state),
+                const SizedBox(height: 16),
+              ],
               Text('Últimos envíos', style: text.titleMedium),
               const SizedBox(height: 8),
               if (state.events.isEmpty)
@@ -185,6 +189,43 @@ class _HomeScreenState extends State<HomeScreen> {
 
   static String _hhmm(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+}
+
+/// "Sonando ahora" en Spotify (lo lee el propio proyector) y si lo está siguiendo.
+class NowPlayingBar extends StatelessWidget {
+  const NowPlayingBar({super.key, required this.state});
+
+  final ReceiverState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = state.nowPlaying!;
+    final text = Theme.of(context).textTheme;
+    return Row(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: t.artUrl == null
+              ? const SizedBox.square(dimension: 44, child: Icon(Icons.album))
+              : Image.network(t.artUrl!, width: 44, height: 44, fit: BoxFit.cover),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${t.isPlaying ? 'Sonando' : 'En pausa'} en Spotify · '
+                '${state.spotifyFollowing ? 'el video sigue a la música' : 'seguimiento apagado'}',
+                style: text.bodySmall?.copyWith(color: Colors.white54),
+              ),
+              Text('${t.title} — ${t.artist}', style: text.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Hora y fecha, actualizadas cada 15 s.

@@ -37,46 +37,8 @@ class YouTubeApi {
     return results;
   }
 
-  /// youtube.com/youtubei/v1/search con el filtro "solo videos".
-  Future<List<VideoCandidate>> _searchWeb(String query) async {
-    final r = await http
-        .post(
-          Uri.https('www.youtube.com', '/youtubei/v1/search', {'prettyPrint': 'false'}),
-          headers: {'content-type': 'application/json', 'user-agent': 'Mozilla/5.0'},
-          body: jsonEncode({
-            'context': {
-              'client': {'clientName': 'WEB', 'clientVersion': '2.20251001.00.00', 'hl': 'es', 'gl': 'MX'},
-            },
-            'query': query,
-            'params': 'EgIQAQ%3D%3D',
-          }),
-        )
-        .timeout(const Duration(seconds: 8));
-    if (r.statusCode != 200) throw StateError('YouTube web ${r.statusCode}');
-    final j = jsonDecode(r.body) as Map<String, dynamic>;
-    final sections = j['contents']?['twoColumnSearchResultsRenderer']?['primaryContents']?['sectionListRenderer']
-        ?['contents'] as List?;
-    final out = <VideoCandidate>[];
-    for (final s in sections ?? const []) {
-      for (final item in (s['itemSectionRenderer']?['contents'] as List?) ?? const []) {
-        final v = item['videoRenderer'];
-        if (v == null || v['videoId'] == null) continue;
-        out.add(VideoCandidate(
-          id: v['videoId'] as String,
-          title: _runs(v['title']),
-          channel: _runs(v['ownerText']),
-          thumbnailUrl: (v['thumbnail']?['thumbnails'] as List?)?.firstOrNull?['url'] as String?,
-        ));
-        if (out.length >= 5) return out;
-      }
-    }
-    return out;
-  }
-
-  static String _runs(Object? o) {
-    final runs = (o as Map?)?['runs'] as List?;
-    return runs == null ? '' : runs.map((r) => r['text'] ?? '').join();
-  }
+  /// youtube.com/youtubei/v1/search (en packages/shared).
+  Future<List<VideoCandidate>> _searchWeb(String query) => searchYouTubeWeb(query);
 
   /// Respaldo: API oficial (100 búsquedas al día con la key gratuita).
   Future<List<VideoCandidate>> _searchApi(String query) async {

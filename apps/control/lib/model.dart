@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
+import 'config.dart';
 import 'projector.dart';
 import 'screens.dart';
 import 'spotify.dart';
@@ -103,6 +104,8 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       final h = await ProjectorClient(s).health();
       screenIdMismatch = h != null && h.id != s.id;
       projectorOnline = h != null && h.id == s.id;
+      screenSpotifyLinked = projectorOnline && h!.spotifyLinked;
+      screenFollowing = projectorOnline && h!.spotifyFollowing;
       if (projectorOnline) {
         // La pantalla es dueña de su nombre: si la renombró otro teléfono, nos enteramos aquí.
         if (h!.name != s.name) await _updateScreen(s.copyWith(name: h.name));
@@ -138,7 +141,9 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       _primed = true;
       return;
     }
-    if (!autoFollow || t == null || !t.isPlaying) return;
+    // Si el proyector sigue a Spotify por su cuenta, el teléfono no manda nada
+    // (si no, se abriría el video dos veces).
+    if (screenSpotifyLinked || !autoFollow || t == null || !t.isPlaying) return;
     _followTimer = Timer(const Duration(seconds: 3), () {
       if (_lastTrackKey == key && !busy && projectorOnline) send();
     });
@@ -149,6 +154,39 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     if (!value) _followTimer?.cancel();
     notifyListeners();
   }
+
+  // --- Spotify del proyector ----------------------------------------------------
+
+  bool screenSpotifyLinked = false;
+  bool screenFollowing = false;
+
+  /// Login de Spotify dedicado al proyector (su propia sesión) y se la manda.
+  /// Desde ahí el proyector sigue la música aunque el teléfono esté guardado.
+  Future<void> linkSpotifyToScreen() => _run(() async {
+        final s = selectedScreen;
+        if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
+        final token = await auth.authorize(scopes: const ['user-read-currently-playing', 'user-read-playback-state']);
+        await ProjectorClient(s).spotify(link: {'clientId': Config.spotifyClientId, 'token': token});
+        screenSpotifyLinked = true;
+        screenFollowing = true;
+        status = '${s.name} ya sigue a Spotify por su cuenta';
+      });
+
+  Future<void> setScreenFollowing(bool on) => _run(() async {
+        final s = selectedScreen;
+        if (s == null) return;
+        await ProjectorClient(s).spotify(following: on);
+        screenFollowing = on;
+      });
+
+  Future<void> unlinkSpotifyFromScreen() => _run(() async {
+        final s = selectedScreen;
+        if (s == null) return;
+        await ProjectorClient(s).spotify(unlink: true);
+        screenSpotifyLinked = false;
+        screenFollowing = false;
+        status = 'Spotify desvinculado de ${s.name}';
+      });
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

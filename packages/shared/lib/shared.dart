@@ -1,6 +1,7 @@
 /// Modelos y el ranker que comparten la app del teléfono y la del proyector.
 library;
 
+export 'media.dart';
 export 'pairing.dart';
 export 'trading.dart';
 

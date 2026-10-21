@@ -7,6 +7,7 @@ import 'home_screen.dart';
 import 'identity.dart';
 import 'mask.dart';
 import 'server.dart';
+import 'spotify_follow.dart';
 import 'state.dart';
 import 'trading.dart';
 
@@ -30,7 +31,15 @@ Future<void> main() async {
   } catch (e) {
     state.add('Máscara no disponible: $e', error: true);
   }
-  ReceiverServer(state, onTradingChanged: trading.onChanged, mask: mask).start().catchError((Object e) {
+  SpotifyFollower? spotify;
+  try {
+    spotify = await SpotifyFollower.open(state);
+  } catch (e) {
+    state.add('Spotify no disponible: $e', error: true);
+  }
+  ReceiverServer(state, onTradingChanged: trading.onChanged, mask: mask, spotify: spotify)
+      .start()
+      .catchError((Object e) {
     state.add('No pude abrir el puerto ${state.port}: $e', error: true);
   });
   runApp(ProyectorApp(state: state));

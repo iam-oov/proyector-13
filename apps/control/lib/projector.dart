@@ -6,11 +6,21 @@ import 'package:shared/shared.dart';
 import 'screens.dart';
 
 class ReceiverHealth {
-  const ReceiverHealth({required this.id, required this.name, required this.version});
+  const ReceiverHealth({
+    required this.id,
+    required this.name,
+    required this.version,
+    this.spotifyLinked = false,
+    this.spotifyFollowing = false,
+  });
 
   final String id;
   final String name;
   final int version;
+
+  /// El proyector tiene su propia sesión de Spotify y sigue la música solo.
+  final bool spotifyLinked;
+  final bool spotifyFollowing;
 }
 
 class ProjectorUnauthorized implements Exception {
@@ -37,10 +47,13 @@ class ProjectorClient {
       if (r.statusCode != 200) return null;
       final j = jsonDecode(r.body) as Map<String, dynamic>;
       if (j['app'] != receiverApp || j['id'] == null) return null;
+      final sp = j['spotify'] as Map?;
       return ReceiverHealth(
         id: j['id'] as String,
         name: (j['name'] as String?) ?? screen.name,
         version: (j['version'] as int?) ?? 1,
+        spotifyLinked: sp?['linked'] == true,
+        spotifyFollowing: sp?['following'] == true,
       );
     } catch (_) {
       return null;
@@ -97,6 +110,19 @@ class ProjectorClient {
           body: jsonEncode({'shapes': shapes, 'feather': feather, 'outline': outline, 'save': save}),
         )
         .timeout(const Duration(seconds: 5));
+    if (r.statusCode == 401) throw const ProjectorUnauthorized();
+    if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
+  }
+
+  /// Spotify del proyector: `link` (sesión propia), `following` o `unlink`.
+  Future<void> spotify({Map<String, dynamic>? link, bool? following, bool unlink = false}) async {
+    final r = await http
+        .post(
+          _url('/spotify'),
+          headers: {'content-type': 'application/json', ..._auth},
+          body: jsonEncode({'link': ?link, 'following': ?following, if (unlink) 'unlink': true}),
+        )
+        .timeout(const Duration(seconds: 10));
     if (r.statusCode == 401) throw const ProjectorUnauthorized();
     if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
   }
