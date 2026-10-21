@@ -1,7 +1,9 @@
 package dev.valdo.proyector
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.media.AudioManager
@@ -51,6 +53,19 @@ object Channels {
                         val intent = if (pkg == null) null else (pm.getLeanbackLaunchIntentForPackage(pkg) ?: pm.getLaunchIntentForPackage(pkg))
                         if (intent == null) result.error("launch", "no se puede abrir $pkg", null)
                         else start(context, result, intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                    // Si existe una Activity (los ajustes cambian según el fabricante).
+                    "hasActivity" -> {
+                        val pkg = call.argument<String>("package")
+                        val cls = call.argument<String>("class")
+                        result.success(
+                            pkg != null && cls != null && try {
+                                context.packageManager.getActivityInfo(ComponentName(pkg, cls), 0)
+                                true
+                            } catch (_: PackageManager.NameNotFoundException) {
+                                false
+                            },
+                        )
                     }
                     // Abre una Activity concreta (p. ej. los ajustes del fabricante).
                     "launchComponent" -> {

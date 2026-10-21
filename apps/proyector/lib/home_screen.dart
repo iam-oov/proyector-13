@@ -38,6 +38,9 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<TvApp> _apps = [];
+  // Accesos de ajustes que existen en este equipo (cambian según el fabricante).
+  AppActivity? _vendorSettings;
+  AppActivity? _androidSettings;
   String? _error;
   // Al volver al inicio se relee la lista: así aparecen las apps recién instaladas.
   late final _lifecycle = AppLifecycleListener(onResume: _load);
@@ -59,10 +62,37 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _load() async {
     try {
-      final apps = await installedApps();
+      final all = await installedApps();
+      // Si el fabricante pone sus ajustes como app (com.android.tv.settings en el
+      // Rockchip), van a la fila de accesos y no se repiten en la cuadrícula.
+      final gridSettings = all
+          .where((a) => a.package == androidSettings.package)
+          .firstOrNull;
+      final apps = [
+        for (final a in all)
+          if (a != gridSettings) a,
+      ];
+      AppActivity? vendor;
+      for (final v in vendorSettings) {
+        if (await hasActivity(v)) {
+          vendor = v;
+          break;
+        }
+      }
+      vendor ??= gridSettings == null
+          ? null
+          : (package: gridSettings.package, activity: gridSettings.activity);
+      final android =
+          vendor != androidSettings && await hasActivity(androidSettings)
+          ? androidSettings
+          : null;
       if (!mounted) return;
       final first = _apps.isEmpty && apps.isNotEmpty;
-      setState(() => _apps = apps);
+      setState(() {
+        _apps = apps;
+        _vendorSettings = vendor;
+        _androidSettings = android;
+      });
       // Las apps llegan después del primer frame: el foco inicial va a la primera.
       if (first) {
         WidgetsBinding.instance.addPostFrameCallback(
@@ -152,7 +182,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           final cols = n <= 6 ? 3 : (n <= 8 ? 4 : 5);
                           final w = ((box.maxWidth - gap * (cols - 1)) / cols)
                               .floorToDouble();
-                          final sw = ((box.maxWidth - gap * 2) / 3)
+                          final vendor = _vendorSettings;
+                          final android = _androidSettings;
+                          final k =
+                              1 +
+                              (vendor == null ? 0 : 1) +
+                              (android == null ? 0 : 1);
+                          final sw = ((box.maxWidth - gap * (k - 1)) / k)
                               .floorToDouble();
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -195,36 +231,43 @@ class _HomeScreenState extends State<HomeScreen> {
                                     onTap: () =>
                                         state.showPanel(ReceiverPanel.qr),
                                   ),
-                                  const SizedBox(width: gap),
                                   // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
-                                  HomeTile(
-                                    width: sw,
-                                    compact: true,
-                                    label: 'Ajustes',
-                                    icon: const Icon(Icons.settings, size: 24),
-                                    color: homeSystemTileColor,
-                                    onTap: () => _open(
-                                      () => launchComponent(
-                                        'com.jixin.settings5',
-                                        'com.jixin.settings5.SettingsActivity',
+                                  if (vendor != null) ...[
+                                    const SizedBox(width: gap),
+                                    HomeTile(
+                                      width: sw,
+                                      compact: true,
+                                      label: 'Ajustes',
+                                      icon: const Icon(
+                                        Icons.settings,
+                                        size: 24,
+                                      ),
+                                      color: homeSystemTileColor,
+                                      onTap: () => _open(
+                                        () => launchComponent(
+                                          vendor.package,
+                                          vendor.activity,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: gap),
+                                  ],
                                   // Los de Android TV: apps, cuentas, mandos, redes.
-                                  HomeTile(
-                                    width: sw,
-                                    compact: true,
-                                    label: 'Ajustes Android',
-                                    icon: const Icon(Icons.tune, size: 24),
-                                    color: homeSystemTileColor,
-                                    onTap: () => _open(
-                                      () => launchComponent(
-                                        'com.android.tv.settings',
-                                        'com.android.tv.settings.MainSettings',
+                                  if (android != null) ...[
+                                    const SizedBox(width: gap),
+                                    HomeTile(
+                                      width: sw,
+                                      compact: true,
+                                      label: 'Ajustes Android',
+                                      icon: const Icon(Icons.tune, size: 24),
+                                      color: homeSystemTileColor,
+                                      onTap: () => _open(
+                                        () => launchComponent(
+                                          android.package,
+                                          android.activity,
+                                        ),
                                       ),
                                     ),
-                                  ),
+                                  ],
                                 ],
                               ),
                             ],

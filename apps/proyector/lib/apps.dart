@@ -62,6 +62,30 @@ Future<List<TvApp>> installedApps() async {
   return apps;
 }
 
+/// Una pantalla concreta de una app (p. ej. unos ajustes).
+typedef AppActivity = ({String package, String activity});
+
+Future<bool> hasActivity(AppActivity a) async =>
+    await _channel.invokeMethod<bool>('hasActivity', {
+      'package': a.package,
+      'class': a.activity,
+    }) ??
+    false;
+
+/// Ajustes del fabricante (trapezoide, proyección, imagen…) conocidos.
+const vendorSettings = <AppActivity>[
+  (
+    package: 'com.jixin.settings5',
+    activity: 'com.jixin.settings5.SettingsActivity',
+  ),
+];
+
+/// Ajustes de Android TV (apps, cuentas, mandos, redes).
+const androidSettings = (
+  package: 'com.android.tv.settings',
+  activity: 'com.android.tv.settings.MainSettings',
+);
+
 Future<void> launchPackage(String package) async {
   try {
     await _channel.invokeMethod<bool>('launchPackage', {'package': package});
