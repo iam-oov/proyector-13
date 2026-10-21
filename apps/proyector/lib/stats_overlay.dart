@@ -39,7 +39,8 @@ class StatsOverlayController {
 
   Future<void> _push() async {
     final s = state.stats;
-    int c(double? v) => v == null || v == 0 ? 0xFFFFFFFF : (v > 0 ? 0xFF4CD964 : 0xFFFF5A5F);
+    int c(double? v) =>
+        v == null || v == 0 ? 0xFFFFFFFF : (v > 0 ? 0xFF4CD964 : 0xFFFF5A5F);
     final at = state.quotesAt;
     final open = state.quotes.values.any((q) => q.isMarketOpen);
     await _channel.invokeMethod<bool>('showStats', {
@@ -47,8 +48,16 @@ class StatsOverlayController {
       'day': money(s.dayTotal),
       'dayColor': c(s.dayTotal),
       'minis': [
-        {'label': 'Abierto', 'value': money(s.unrealizedPnl), 'color': c(s.unrealizedPnl)},
-        {'label': 'Realizado hoy', 'value': money(s.realizedToday), 'color': c(s.realizedToday)},
+        {
+          'label': 'Abierto',
+          'value': money(s.unrealizedPnl),
+          'color': c(s.unrealizedPnl),
+        },
+        {
+          'label': 'Realizado hoy',
+          'value': money(s.realizedToday),
+          'color': c(s.realizedToday),
+        },
         {'label': 'Total', 'value': money(s.totalPnl), 'color': c(s.totalPnl)},
       ],
       'rows': [
@@ -64,7 +73,7 @@ class StatsOverlayController {
       'footer': at == null
           ? 'Precios de Yahoo Finance'
           : '${open ? 'Mercado abierto' : 'Mercado cerrado'} · Yahoo '
-              '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}',
+                '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}',
     });
   }
 }

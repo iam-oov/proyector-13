@@ -68,7 +68,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Text(householdTitle, style: text.headlineMedium),
                       // El nombre de esta pantalla (el del QR) queda como subtítulo.
-                      Text(state.identity.name, style: text.bodyMedium?.copyWith(color: Colors.white54)),
+                      Text(
+                        state.identity.name,
+                        style: text.bodyMedium?.copyWith(color: Colors.white54),
+                      ),
                     ],
                   ),
                   const Spacer(),
@@ -160,6 +163,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
               const Spacer(),
+              if (state.queueInfo != null) ...[
+                Row(
+                  children: [
+                    const Icon(Icons.shuffle, size: 20, color: Colors.white70),
+                    const SizedBox(width: 8),
+                    Text('Cola: ${state.queueInfo}', style: text.titleSmall),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
               if (state.spotifyLinked && state.nowPlaying != null) ...[
                 NowPlayingBar(state: state),
                 const SizedBox(height: 16),
@@ -207,7 +220,12 @@ class NowPlayingBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
           child: t.artUrl == null
               ? const SizedBox.square(dimension: 44, child: Icon(Icons.album))
-              : Image.network(t.artUrl!, width: 44, height: 44, fit: BoxFit.cover),
+              : Image.network(
+                  t.artUrl!,
+                  width: 44,
+                  height: 44,
+                  fit: BoxFit.cover,
+                ),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -219,7 +237,12 @@ class NowPlayingBar extends StatelessWidget {
                 '${state.spotifyFollowing ? 'el video sigue a la música' : 'seguimiento apagado'}',
                 style: text.bodySmall?.copyWith(color: Colors.white54),
               ),
-              Text('${t.title} — ${t.artist}', style: text.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+              Text(
+                '${t.title} — ${t.artist}',
+                style: text.titleSmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ],
           ),
         ),

@@ -13,6 +13,7 @@ class Track {
     this.isPlaying = true,
     this.album,
     this.artUrl,
+    this.addedAt,
   });
 
   final String title;
@@ -20,6 +21,17 @@ class Track {
   final bool isPlaying;
   final String? album;
   final String? artUrl;
+
+  /// Cuándo se agregó a la playlist (solo en canciones de playlists).
+  final DateTime? addedAt;
+
+  Map<String, dynamic> toJson() => {'title': title, 'artists': artists, 'artUrl': ?artUrl};
+
+  factory Track.fromJson(Map<String, dynamic> j) => Track(
+        title: j['title'] as String,
+        artists: [for (final a in j['artists'] as List) a as String],
+        artUrl: j['artUrl'] as String?,
+      );
 
   String get artist => artists.join(', ');
 

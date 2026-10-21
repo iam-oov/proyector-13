@@ -51,6 +51,7 @@ class ScreenStore {
   static const _kScreens = 'screens';
   static const _kSelected = 'selected_screen_id';
   static const _kPhoneName = 'phone_name';
+  static const _kPinned = 'pinned_playlists';
 
   final FlutterSecureStorage _storage;
 
@@ -76,4 +77,17 @@ class ScreenStore {
   Future<String?> loadPhoneName() => _storage.read(key: _kPhoneName);
 
   Future<void> savePhoneName(String name) => _storage.write(key: _kPhoneName, value: name);
+
+  /// Ids de playlists fijadas arriba.
+  Future<Set<String>> loadPinned() async {
+    final raw = await _storage.read(key: _kPinned);
+    if (raw == null) return {};
+    try {
+      return {for (final id in jsonDecode(raw) as List) id as String};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> savePinned(Set<String> ids) => _storage.write(key: _kPinned, value: jsonEncode(ids.toList()));
 }

@@ -25,9 +25,18 @@ class MaskController {
   bool get active => current != null;
 
   /// `shapes`: lista de polígonos `[x0, y0, x1, y1, …]`; `feather` 0..0.1.
-  Future<void> apply({required List<List<double>> shapes, double feather = 0, bool outline = false, bool save = true}) async {
+  Future<void> apply({
+    required List<List<double>> shapes,
+    double feather = 0,
+    bool outline = false,
+    bool save = true,
+  }) async {
     if (shapes.isEmpty) return clear();
-    final data = <String, Object?>{'shapes': shapes, 'feather': feather, 'outline': outline};
+    final data = <String, Object?>{
+      'shapes': shapes,
+      'feather': feather,
+      'outline': outline,
+    };
     await _channel.invokeMethod<bool>('setMask', data);
     current = data;
     // El contorno es para calibrar: no se guarda encendido.

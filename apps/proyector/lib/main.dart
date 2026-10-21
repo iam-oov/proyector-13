@@ -7,6 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'home_screen.dart';
 import 'identity.dart';
 import 'mask.dart';
+import 'queue.dart';
 import 'server.dart';
 import 'spotify_follow.dart';
 import 'stats_overlay.dart';
@@ -24,7 +25,9 @@ Future<void> main() async {
     loadError = '$e';
   }
   final state = ReceiverState(identity);
-  if (loadError != null) state.add('No pude guardar la identidad: $loadError', error: true);
+  if (loadError != null) {
+    state.add('No pude guardar la identidad: $loadError', error: true);
+  }
   final trading = TradingController(state, await TradingStore.open());
   await trading.init();
   MaskController? mask;
@@ -39,6 +42,10 @@ Future<void> main() async {
   } catch (e) {
     state.add('Spotify no disponible: $e', error: true);
   }
+  final queue = QueueController(state);
+  await queue.init();
+  spotify?.busy = () => queue.active;
+  state.toggleFollowing = spotify?.setFollowing;
   final stats = StatsOverlayController(state);
   // ¿Estamos al frente o hay otra app (YouTube)? Decide si "mostrar trading"
   // trae el inicio o pone la tarjeta flotante encima del video.
@@ -49,9 +56,14 @@ Future<void> main() async {
     },
     onPause: () => state.appInForeground = false,
   );
-  ReceiverServer(state, onTradingChanged: trading.onChanged, mask: mask, spotify: spotify, stats: stats)
-      .start()
-      .catchError((Object e) {
+  ReceiverServer(
+    state,
+    onTradingChanged: trading.onChanged,
+    mask: mask,
+    spotify: spotify,
+    stats: stats,
+    queue: queue,
+  ).start().catchError((Object e) {
     state.add('No pude abrir el puerto ${state.port}: $e', error: true);
   });
   runApp(ProyectorApp(state: state));
@@ -97,62 +109,104 @@ class StatusScreen extends StatelessWidget {
       canPop: false,
       onPopInvokedWithResult: (_, _) => state.showPanel(ReceiverPanel.home),
       child: Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 48),
-        child: ListenableBuilder(
-          listenable: state,
-          builder: (context, _) => LayoutBuilder(
-            builder: (context, constraints) {
-              final qrSize = math.min(constraints.maxHeight * 0.6, constraints.maxWidth * 0.35);
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _QrPanel(uri: state.pairingUri, size: qrSize),
-                  const SizedBox(width: 48),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(state.identity.name, style: text.displaySmall),
-                        const SizedBox(height: 8),
-                        Text(
-                          state.host == null ? 'Abriendo el puerto ${state.port}…' : '${state.host}:${state.port}',
-                          style: text.titleLarge?.copyWith(color: Colors.white70),
-                        ),
-                        const SizedBox(height: 16),
-                        Text('Escanea el QR con la app Proyector en tu teléfono', style: text.bodyLarge),
-                        const SizedBox(height: 12),
-                        Text(
-                          state.phones.isEmpty ? 'Nadie conectado todavía' : 'Conectado: ${state.phones.join(', ')}',
-                          style: text.bodyLarge?.copyWith(color: Colors.white70),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 36),
-                        Text('Últimos envíos', style: text.titleMedium),
-                        const SizedBox(height: 12),
-                        if (state.events.isEmpty)
-                          Text('Todavía nada. Manda un video desde el teléfono.',
-                              style: text.bodyLarge?.copyWith(color: Colors.white38)),
-                        for (final e in state.events)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: Text(
-                              '${_hhmm(e.at)}  ${e.message}',
-                              style: text.bodyLarge?.copyWith(color: e.error ? Colors.redAccent : Colors.white70),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+        body: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 48),
+          child: ListenableBuilder(
+            listenable: state,
+            builder: (context, _) => LayoutBuilder(
+              builder: (context, constraints) {
+                final qrSize = math.min(
+                  constraints.maxHeight * 0.6,
+                  constraints.maxWidth * 0.35,
+                );
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _QrPanel(uri: state.pairingUri, size: qrSize),
+                    const SizedBox(width: 48),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(state.identity.name, style: text.displaySmall),
+                          const SizedBox(height: 8),
+                          Text(
+                            state.host == null
+                                ? 'Abriendo el puerto ${state.port}…'
+                                : '${state.host}:${state.port}',
+                            style: text.titleLarge?.copyWith(
+                              color: Colors.white70,
                             ),
                           ),
-                      ],
+                          const SizedBox(height: 16),
+                          Text(
+                            'Escanea el QR con la app Proyector en tu teléfono',
+                            style: text.bodyLarge,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            state.phones.isEmpty
+                                ? 'Nadie conectado todavía'
+                                : 'Conectado: ${state.phones.join(', ')}',
+                            style: text.bodyLarge?.copyWith(
+                              color: Colors.white70,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          // Spotify del proyector: prender/apagar el seguimiento con el control.
+                          if (state.spotifyLinked) ...[
+                            const SizedBox(height: 16),
+                            FilledButton.tonalIcon(
+                              autofocus: true,
+                              onPressed: () => state.toggleFollowing?.call(
+                                !state.spotifyFollowing,
+                              ),
+                              icon: Icon(
+                                state.spotifyFollowing
+                                    ? Icons.music_off
+                                    : Icons.music_note,
+                              ),
+                              label: Text(
+                                state.spotifyFollowing
+                                    ? 'Dejar de seguir a Spotify'
+                                    : 'Seguir a Spotify',
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 36),
+                          Text('Últimos envíos', style: text.titleMedium),
+                          const SizedBox(height: 12),
+                          if (state.events.isEmpty)
+                            Text(
+                              'Todavía nada. Manda un video desde el teléfono.',
+                              style: text.bodyLarge?.copyWith(
+                                color: Colors.white38,
+                              ),
+                            ),
+                          for (final e in state.events)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Text(
+                                '${_hhmm(e.at)}  ${e.message}',
+                                style: text.bodyLarge?.copyWith(
+                                  color: e.error
+                                      ? Colors.redAccent
+                                      : Colors.white70,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              );
-            },
+                  ],
+                );
+              },
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -172,11 +226,19 @@ class _QrPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: uri == null
           ? SizedBox.square(
               dimension: size,
-              child: const Center(child: Text('Buscando la red…', style: TextStyle(color: Colors.black54))),
+              child: const Center(
+                child: Text(
+                  'Buscando la red…',
+                  style: TextStyle(color: Colors.black54),
+                ),
+              ),
             )
           : QrImageView(
               data: uri!,

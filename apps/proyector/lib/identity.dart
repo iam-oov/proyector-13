@@ -43,22 +43,41 @@ class ReceiverIdentity {
         final id = j['id'] as String?;
         final token = j['token'] as String?;
         if (id != null && token != null) {
-          final phones = [for (final p in (j['phones'] as List?) ?? const []) p.toString()];
-          return ReceiverIdentity._(file, id, token, (j['name'] as String?) ?? 'Proyector', phones);
+          final phones = [
+            for (final p in (j['phones'] as List?) ?? const []) p.toString(),
+          ];
+          return ReceiverIdentity._(
+            file,
+            id,
+            token,
+            (j['name'] as String?) ?? 'Proyector',
+            phones,
+          );
         }
       } catch (_) {
         // Archivo corrupto: se genera una identidad nueva.
       }
     }
-    final identity = ReceiverIdentity._(file, randomScreenId(), randomUrlSafe(32), 'Proyector', []);
+    final identity = ReceiverIdentity._(
+      file,
+      randomScreenId(),
+      randomUrlSafe(32),
+      'Proyector',
+      [],
+    );
     await identity._save();
     return identity;
   }
 
   /// Identidad de emergencia (no persiste) para que la app arranque aunque
   /// falle el almacenamiento.
-  factory ReceiverIdentity.ephemeral() =>
-      ReceiverIdentity._(null, randomScreenId(), randomUrlSafe(32), 'Proyector', []);
+  factory ReceiverIdentity.ephemeral() => ReceiverIdentity._(
+    null,
+    randomScreenId(),
+    randomUrlSafe(32),
+    'Proyector',
+    [],
+  );
 
   Future<void> rename(String name) async {
     final n = name.trim();

@@ -50,7 +50,7 @@ class SpotifyApi {
   /// Canciones de una playlist (hasta [max]), siguiendo la paginación de Spotify.
   /// Usa `/playlists/{id}/items`: el viejo `/tracks` ya responde 403 a las apps
   /// en modo desarrollo.
-  Future<List<Track>> tracks(String playlistId, {int max = 300}) async {
+  Future<List<Track>> tracks(String playlistId, {int max = 1000}) async {
     Uri? next = playlistId == likedId
         ? Uri.https('api.spotify.com', '/v1/me/tracks', {'limit': '50'})
         : Uri.https('api.spotify.com', '/v1/playlists/$playlistId/items', {'limit': '100'});
@@ -61,7 +61,8 @@ class SpotifyApi {
         // /items trae la canción en "item"; /me/tracks la sigue trayendo en "track".
         final t = (item?['item'] ?? item?['track']) as Map<String, dynamic>?;
         if (t == null || t['is_local'] == true || t['type'] != 'track') continue;
-        out.add(_track(t));
+        final added = item?['added_at'] as String?;
+        out.add(_track(t, addedAt: added == null ? null : DateTime.tryParse(added)));
       }
       next = j['next'] == null ? null : Uri.parse(j['next'] as String);
     }
@@ -81,7 +82,7 @@ class SpotifyApi {
     return jsonDecode(r.body) as Map<String, dynamic>;
   }
 
-  static Track _track(Map<String, dynamic> t, {bool isPlaying = true}) {
+  static Track _track(Map<String, dynamic> t, {bool isPlaying = true, DateTime? addedAt}) {
     final album = t['album'] as Map<String, dynamic>?;
     return Track(
       title: t['name'] as String,
@@ -89,6 +90,7 @@ class SpotifyApi {
       isPlaying: isPlaying,
       album: album?['name'] as String?,
       artUrl: _firstImage(album?['images'] as List?),
+      addedAt: addedAt,
     );
   }
 

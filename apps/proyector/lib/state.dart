@@ -29,9 +29,13 @@ class ReceiverState extends ChangeNotifier {
   /// Contenido del QR. Null hasta que se conoce la IP.
   String? get pairingUri => host == null
       ? null
-      : PairingPayload(id: identity.id, name: identity.name, host: host!, port: port, token: identity.token)
-          .toUri()
-          .toString();
+      : PairingPayload(
+          id: identity.id,
+          name: identity.name,
+          host: host!,
+          port: port,
+          token: identity.token,
+        ).toUri().toString();
 
   PortfolioStats get stats => PortfolioStats.compute(trades, quotes);
 
@@ -85,14 +89,31 @@ class ReceiverState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// "Pa pistear 3am · 3 de 57" mientras hay una cola activa.
+  String? queueInfo;
+
+  void setQueue(String? info) {
+    if (info == queueInfo) return;
+    queueInfo = info;
+    notifyListeners();
+  }
+
   // Spotify del propio proyector (ver spotify_follow.dart).
+  /// Lo conecta main.dart a SpotifyFollower.setFollowing (botón en la pantalla del QR).
+  Future<void> Function(bool on)? toggleFollowing;
   bool spotifyLinked = false;
   bool spotifyFollowing = false;
   Track? nowPlaying;
 
   /// Solo notifica si algo visible cambió (se llama cada 5 s).
-  void setSpotify({bool? linked, bool? following, Track? nowPlaying, bool clearNowPlaying = false}) {
-    String snap() => '$spotifyLinked|$spotifyFollowing|${this.nowPlaying}|${this.nowPlaying?.isPlaying}';
+  void setSpotify({
+    bool? linked,
+    bool? following,
+    Track? nowPlaying,
+    bool clearNowPlaying = false,
+  }) {
+    String snap() =>
+        '$spotifyLinked|$spotifyFollowing|${this.nowPlaying}|${this.nowPlaying?.isPlaying}';
     final before = snap();
     if (linked != null) spotifyLinked = linked;
     if (following != null) spotifyFollowing = following;

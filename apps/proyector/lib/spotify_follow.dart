@@ -14,6 +14,9 @@ import 'state.dart';
 class SpotifyFollower {
   SpotifyFollower(this.state, this._file);
 
+  /// Mientras haya una cola sonando, seguir a Spotify no cambia el video.
+  bool Function() busy = () => false;
+
   final ReceiverState state;
   final File? _file;
   Map<String, dynamic>? _token;
@@ -26,7 +29,10 @@ class SpotifyFollower {
 
   static Future<SpotifyFollower> open(ReceiverState state) async {
     final dir = await appFilesDir();
-    final f = SpotifyFollower(state, dir == null ? null : File('$dir/spotify.json'));
+    final f = SpotifyFollower(
+      state,
+      dir == null ? null : File('$dir/spotify.json'),
+    );
     await f._restore();
     return f;
   }
@@ -34,7 +40,11 @@ class SpotifyFollower {
   bool get linked => _token != null;
 
   /// El teléfono manda una sesión nueva (login PKCE hecho para el proyector).
-  Future<void> link({required String clientId, required Map<String, dynamic> token, bool follow = true}) async {
+  Future<void> link({
+    required String clientId,
+    required Map<String, dynamic> token,
+    bool follow = true,
+  }) async {
     _clientId = clientId;
     _token = token;
     state.setSpotify(linked: true, following: follow);
@@ -94,7 +104,7 @@ class SpotifyFollower {
       _primed = true;
       return;
     }
-    if (!state.spotifyFollowing || t == null || !t.isPlaying) return;
+    if (!state.spotifyFollowing || busy() || t == null || !t.isPlaying) return;
     _debounce = Timer(const Duration(seconds: 3), () {
       if (_lastKey == key) unawaited(_play(t));
     });
@@ -123,9 +133,14 @@ class SpotifyFollower {
     final clientId = _clientId;
     if (t == null || clientId == null) return null;
     final expiresAt = (t['expires_at'] as num?)?.toInt() ?? 0;
-    if (DateTime.now().millisecondsSinceEpoch < expiresAt - 60000) return t['access_token'] as String?;
+    if (DateTime.now().millisecondsSinceEpoch < expiresAt - 60000) {
+      return t['access_token'] as String?;
+    }
     try {
-      final fresh = await spotifyRefresh(clientId, t['refresh_token'] as String);
+      final fresh = await spotifyRefresh(
+        clientId,
+        t['refresh_token'] as String,
+      );
       _token = {...t, ...fresh};
       await _save();
       return _token!['access_token'] as String?;
@@ -155,7 +170,11 @@ class SpotifyFollower {
     if (f == null || _token == null) return;
     final tmp = File('${f.path}.tmp');
     await tmp.writeAsString(
-      jsonEncode({'clientId': _clientId, 'token': _token, 'following': state.spotifyFollowing}),
+      jsonEncode({
+        'clientId': _clientId,
+        'token': _token,
+        'following': state.spotifyFollowing,
+      }),
       flush: true,
     );
     await tmp.rename(f.path);

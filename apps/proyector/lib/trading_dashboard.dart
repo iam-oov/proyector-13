@@ -39,7 +39,10 @@ class TradingStats extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           Text('P&L del día', style: small),
-          Text(money(s.dayTotal), style: text.displaySmall?.copyWith(color: pnlColor(s.dayTotal))),
+          Text(
+            money(s.dayTotal),
+            style: text.displaySmall?.copyWith(color: pnlColor(s.dayTotal)),
+          ),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -55,21 +58,33 @@ class TradingStats extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 3),
                 child: Row(
                   children: [
-                    SizedBox(width: 56, child: Text(p.symbol, style: text.titleSmall)),
+                    SizedBox(
+                      width: 56,
+                      child: Text(p.symbol, style: text.titleSmall),
+                    ),
                     Expanded(
                       child: Text(
-                        p.quote == null ? '—' : money(p.quote!.price, sign: false),
+                        p.quote == null
+                            ? '—'
+                            : money(p.quote!.price, sign: false),
                         style: text.bodyMedium?.copyWith(color: Colors.white70),
                       ),
                     ),
-                    Text(money(p.unrealized), style: text.bodyMedium?.copyWith(color: pnlColor(p.unrealized))),
+                    Text(
+                      money(p.unrealized),
+                      style: text.bodyMedium?.copyWith(
+                        color: pnlColor(p.unrealized),
+                      ),
+                    ),
                     const SizedBox(width: 10),
                     SizedBox(
                       width: 60,
                       child: Text(
                         pct(p.unrealizedPct),
                         textAlign: TextAlign.right,
-                        style: text.bodySmall?.copyWith(color: pnlColor(p.unrealizedPct)),
+                        style: text.bodySmall?.copyWith(
+                          color: pnlColor(p.unrealizedPct),
+                        ),
                       ),
                     ),
                   ],
@@ -77,7 +92,10 @@ class TradingStats extends StatelessWidget {
               ),
           ],
           const SizedBox(height: 6),
-          Text(_footer(state), style: text.bodySmall?.copyWith(color: Colors.white38)),
+          Text(
+            _footer(state),
+            style: text.bodySmall?.copyWith(color: Colors.white38),
+          ),
         ],
       ),
     );
@@ -106,7 +124,10 @@ class _MiniStat extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label, style: text.bodySmall?.copyWith(color: Colors.white54)),
-          Text(money(value), style: text.titleSmall?.copyWith(color: pnlColor(value))),
+          Text(
+            money(value),
+            style: text.titleSmall?.copyWith(color: pnlColor(value)),
+          ),
         ],
       ),
     );
@@ -141,7 +162,10 @@ class _CountdownState extends State<_Countdown> {
 
   @override
   Widget build(BuildContext context) {
-    return Text('⟳ ${countdownText(widget.until.difference(DateTime.now()))}', style: widget.style);
+    return Text(
+      '⟳ ${countdownText(widget.until.difference(DateTime.now()))}',
+      style: widget.style,
+    );
   }
 }
 
@@ -150,4 +174,5 @@ Color? pnlColor(double? v) {
   return v > 0 ? const Color(0xFF4CD964) : const Color(0xFFFF5A5F);
 }
 
-String _hhmm(DateTime t) => '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+String _hhmm(DateTime t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';

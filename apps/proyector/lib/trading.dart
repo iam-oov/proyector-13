@@ -25,7 +25,10 @@ class TradingStore {
     try {
       final j = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       return (
-        trades: [for (final t in (j['trades'] as List?) ?? const []) Trade.fromJson(t as Map<String, dynamic>)],
+        trades: [
+          for (final t in (j['trades'] as List?) ?? const [])
+            Trade.fromJson(t as Map<String, dynamic>),
+        ],
         show: j['show'] == true,
       );
     } catch (_) {
@@ -38,7 +41,10 @@ class TradingStore {
     if (f == null) return;
     final tmp = File('${f.path}.tmp');
     await tmp.writeAsString(
-      jsonEncode({'show': show, 'trades': [for (final t in trades) t.toJson()]}),
+      jsonEncode({
+        'show': show,
+        'trades': [for (final t in trades) t.toJson()],
+      }),
       flush: true,
     );
     await tmp.rename(f.path);
@@ -66,7 +72,8 @@ class TradingController {
   }
 
   void _onState() {
-    final want = state.panel == ReceiverPanel.home && state.trades.any((t) => t.isOpen);
+    final want =
+        state.panel == ReceiverPanel.home && state.trades.any((t) => t.isOpen);
     if (want == _active) return;
     _active = want;
     _timer?.cancel();
@@ -75,7 +82,9 @@ class TradingController {
     // Al volver al inicio: si ya hay un siguiente refresh agendado en el
     // futuro (p. ej. mercado cerrado), se respeta; si no, se pide ya.
     final next = state.nextQuotesAt;
-    if (next != null && next.isAfter(DateTime.now()) && state.quotesAt != null) {
+    if (next != null &&
+        next.isAfter(DateTime.now()) &&
+        state.quotesAt != null) {
       _schedule(next);
     } else {
       unawaited(refresh());
@@ -94,7 +103,10 @@ class TradingController {
   }
 
   Future<void> refresh() async {
-    final symbols = state.trades.where((t) => t.isOpen).map((t) => t.symbol).toSet();
+    final symbols = state.trades
+        .where((t) => t.isOpen)
+        .map((t) => t.symbol)
+        .toSet();
     if (symbols.isEmpty) return;
     state.setQuotesLoading(true);
     final quotes = await _yahoo.quotes(symbols);

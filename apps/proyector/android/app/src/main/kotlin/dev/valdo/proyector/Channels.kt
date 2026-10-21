@@ -14,9 +14,13 @@ import java.io.ByteArrayOutputStream
 // depende de una Activity (se usa el contexto de la aplicacion).
 object Channels {
     fun install(context: Context, engine: FlutterEngine) {
-        MethodChannel(engine.dartExecutor.binaryMessenger, "proyector/launch")
-            .setMethodCallHandler { call, result ->
+        val channel = MethodChannel(engine.dartExecutor.binaryMessenger, "proyector/launch")
+        channel.setMethodCallHandler { call, result ->
                 when (call.method) {
+                    // Empieza a avisar a Dart ("mediaChanged") de lo que reproduce YouTube.
+                    "startMediaWatch" -> result.success(
+                        MediaWatcher.start(context) { info -> channel.invokeMethod("mediaChanged", info) },
+                    )
                     // Abre la URL en su propia tarea. CLEAR_TASK: cada envio recrea la pantalla
                     // de YouTube, para no reutilizar una superficie de video que se quedo en negro.
                     "openUrl" -> {

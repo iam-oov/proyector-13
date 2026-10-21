@@ -98,6 +98,27 @@ class ProjectorClient {
     return (jsonDecode(r.body) as Map<String, dynamic>)['mode'] as String? ?? 'none';
   }
 
+  /// Cola en el proyector: avanza sola al terminar cada video. `stop` la corta.
+  Future<String?> queue({List<Track>? tracks, String? name, bool shuffle = false, int startAt = 0, bool stop = false}) async {
+    final r = await http
+        .post(
+          _url('/queue'),
+          headers: {'content-type': 'application/json', ..._auth},
+          body: jsonEncode(stop
+              ? {'stop': true}
+              : {
+                  'tracks': [for (final t in tracks ?? const <Track>[]) t.toJson()],
+                  'name': ?name,
+                  'shuffle': shuffle,
+                  'startAt': startAt,
+                }),
+        )
+        .timeout(const Duration(seconds: 30));
+    if (r.statusCode == 401) throw const ProjectorUnauthorized();
+    if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
+    return (jsonDecode(r.body) as Map<String, dynamic>)['info'] as String?;
+  }
+
   /// Volumen del proyector: `(level, max, muted)` o null si no responde.
   Future<({int level, int max, bool muted})?> volume({int? level, int? delta, bool? mute}) async {
     try {

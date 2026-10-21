@@ -77,6 +77,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     screens = await _store.loadScreens();
     selectedScreenId = await _store.loadSelectedId();
     phoneName = await _store.loadPhoneName();
+    pinned = await _store.loadPinned();
     trades = await _tradeStore.load();
     if (selectedScreen == null && screens.isNotEmpty) selectedScreenId = screens.first.id;
     loggedIn = await auth.isLoggedIn;
@@ -327,6 +328,29 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<List<Track>> tracksOf(String playlistId) async =>
       _tracks[playlistId] ??= await spotify.tracks(playlistId);
+
+  // Playlists fijadas arriba (se guardan en el teléfono).
+  Set<String> pinned = {};
+
+  bool isPinned(String id) => pinned.contains(id);
+
+  Future<void> togglePin(String id) async {
+    pinned = {...pinned};
+    if (!pinned.remove(id)) pinned.add(id);
+    await _store.savePinned(pinned);
+    notifyListeners();
+  }
+
+  /// Arma una cola en el proyector (aleatoria o en orden desde `startAt`).
+  Future<void> playQueue(List<Track> tracks, {String? name, bool shuffle = false, int startAt = 0}) =>
+      _run(() async {
+        final s = selectedScreen;
+        if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
+        status = 'Armando la cola…';
+        notifyListeners();
+        final info = await ProjectorClient(s).queue(tracks: tracks, name: name, shuffle: shuffle, startAt: startAt);
+        status = info == null ? 'No encontré videos para esta playlist' : 'Sonando en ${s.name}: $info';
+      });
 
   // --- Buscar ------------------------------------------------------------------
 

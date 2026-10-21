@@ -10,6 +10,7 @@ import 'package:shelf_router/shelf_router.dart';
 
 import 'mask.dart';
 import 'player.dart';
+import 'queue.dart';
 import 'spotify_follow.dart';
 import 'state.dart';
 import 'stats_overlay.dart';
@@ -17,7 +18,17 @@ import 'stats_overlay.dart';
 /// Servidor HTTP en la LAN. El teléfono manda `POST /play {"videoId": "..."}`
 /// con el token que viene en el QR (`Authorization: Bearer <token>`).
 class ReceiverServer {
-  ReceiverServer(this.state, {this.port = 8080, this.onTradingChanged, this.mask, this.spotify, this.stats});
+  ReceiverServer(
+    this.state, {
+    this.port = 8080,
+    this.onTradingChanged,
+    this.mask,
+    this.spotify,
+    this.stats,
+    this.queue,
+  });
+
+  final QueueController? queue;
 
   final ReceiverState state;
   final int port;
@@ -37,43 +48,54 @@ class ReceiverServer {
       ..post('/trading', _auth(_trading))
       ..post('/mask', _auth(_mask))
       ..post('/spotify', _auth(_spotify))
+      ..post('/queue', _auth(_queue))
       ..get('/volume', _auth(_getVolume))
       ..post('/volume', _auth(_setVolume));
-    final handler = const Pipeline().addMiddleware(_cors()).addHandler(router.call);
+    final handler = const Pipeline()
+        .addMiddleware(_cors())
+        .addHandler(router.call);
     await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
     state.listening(await _lanAddress() ?? '0.0.0.0', port);
     debugPrint('pairing: ${state.pairingUri}');
-    _addressTimer = Timer.periodic(const Duration(seconds: 30), (_) => _refreshAddress());
+    _addressTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _refreshAddress(),
+    );
   }
 
   void stop() => _addressTimer?.cancel();
 
   /// La IP puede cambiar (DHCP); si cambia, el QR se regenera.
   Future<void> _refreshAddress() async {
-    if (state.addressChanged(await _lanAddress())) debugPrint('pairing: ${state.pairingUri}');
+    if (state.addressChanged(await _lanAddress())) {
+      debugPrint('pairing: ${state.pairingUri}');
+    }
   }
 
   /// Exige el token del QR. Sin él, 401.
   Handler _auth(Handler inner) => (Request request) {
-        final header = request.headers['authorization'] ?? '';
-        if (header != 'Bearer ${state.identity.token}') {
-          return _json(
-            {'ok': false, 'error': 'código inválido: escanea el QR del proyector'},
-            401,
-            {'www-authenticate': 'Bearer realm="proyector"'},
-          );
-        }
-        return inner(request);
-      };
+    final header = request.headers['authorization'] ?? '';
+    if (header != 'Bearer ${state.identity.token}') {
+      return _json(
+        {'ok': false, 'error': 'código inválido: escanea el QR del proyector'},
+        401,
+        {'www-authenticate': 'Bearer realm="proyector"'},
+      );
+    }
+    return inner(request);
+  };
 
   Response _health(Request _) => _json({
-        'ok': true,
-        'app': receiverApp,
-        'version': receiverApiVersion,
-        'id': state.identity.id,
-        'name': state.identity.name,
-        'spotify': {'linked': state.spotifyLinked, 'following': state.spotifyFollowing},
-      });
+    'ok': true,
+    'app': receiverApp,
+    'version': receiverApiVersion,
+    'id': state.identity.id,
+    'name': state.identity.name,
+    'spotify': {
+      'linked': state.spotifyLinked,
+      'following': state.spotifyFollowing,
+    },
+  });
 
   /// Spotify del proyector:
   /// - `{"link": {"clientId": "...", "token": {access_token, refresh_token, expires_at, …}}}`
@@ -81,7 +103,9 @@ class ReceiverServer {
   /// - `{"unlink": true}`
   Future<Response> _spotify(Request request) async {
     final s = spotify;
-    if (s == null) return _json({'ok': false, 'error': 'Spotify no disponible'}, 500);
+    if (s == null) {
+      return _json({'ok': false, 'error': 'Spotify no disponible'}, 500);
+    }
     final Map<String, dynamic> body;
     try {
       body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
@@ -97,9 +121,15 @@ class ReceiverServer {
       }
       await s.link(clientId: clientId, token: token);
     }
-    if (body['following'] is bool) await s.setFollowing(body['following'] as bool);
+    if (body['following'] is bool) {
+      await s.setFollowing(body['following'] as bool);
+    }
     if (body['unlink'] == true) await s.unlink();
-    return _json({'ok': true, 'linked': state.spotifyLinked, 'following': state.spotifyFollowing});
+    return _json({
+      'ok': true,
+      'linked': state.spotifyLinked,
+      'following': state.spotifyFollowing,
+    });
   }
 
   /// El teléfono se presenta (y opcionalmente renombra la pantalla).
@@ -111,10 +141,14 @@ class ReceiverServer {
       return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
     }
     final phone = body['phoneName']?.toString().trim() ?? '';
-    if (phone.isEmpty) return _json({'ok': false, 'error': 'falta phoneName'}, 400);
+    if (phone.isEmpty) {
+      return _json({'ok': false, 'error': 'falta phoneName'}, 400);
+    }
     await state.addPhone(phone);
     final screenName = body['screenName']?.toString().trim();
-    if (screenName != null && screenName.isNotEmpty) await state.rename(screenName);
+    if (screenName != null && screenName.isNotEmpty) {
+      await state.rename(screenName);
+    }
     return _json({
       'ok': true,
       'id': state.identity.id,
@@ -134,7 +168,10 @@ class ReceiverServer {
     }
     if (body['trades'] is List) {
       try {
-        state.setTrades([for (final j in body['trades'] as List) Trade.fromJson(j as Map<String, dynamic>)]);
+        state.setTrades([
+          for (final j in body['trades'] as List)
+            Trade.fromJson(j as Map<String, dynamic>),
+        ]);
       } catch (e) {
         return _json({'ok': false, 'error': 'trades inválidos: $e'}, 400);
       }
@@ -164,7 +201,49 @@ class ReceiverServer {
     });
   }
 
-  Future<Response> _getVolume(Request _) async => _json({'ok': true, ...await getVolume()});
+  /// Cola: `{"tracks": [{title, artists}], "name": "…", "shuffle": true, "startAt": 0}`,
+  /// `{"next": true}` o `{"stop": true}`.
+  Future<Response> _queue(Request request) async {
+    final q = queue;
+    if (q == null) {
+      return _json({'ok': false, 'error': 'cola no disponible'}, 500);
+    }
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (_) {
+      return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
+    }
+    if (body['stop'] == true) {
+      q.stop();
+    } else if (body['next'] == true) {
+      await q.next();
+    } else if (body['tracks'] is List) {
+      final tracks = <Track>[];
+      try {
+        for (final t in body['tracks'] as List) {
+          tracks.add(Track.fromJson((t as Map).cast<String, dynamic>()));
+        }
+      } catch (e) {
+        return _json({'ok': false, 'error': 'tracks inválidos: $e'}, 400);
+      }
+      if (body['shuffle'] == true) tracks.shuffle();
+      await q.start(
+        tracks,
+        name: body['name']?.toString(),
+        startAt: (body['startAt'] as num?)?.toInt() ?? 0,
+      );
+    }
+    return _json({
+      'ok': true,
+      'active': q.active,
+      'watching': q.watching,
+      'info': state.queueInfo,
+    });
+  }
+
+  Future<Response> _getVolume(Request _) async =>
+      _json({'ok': true, ...await getVolume()});
 
   /// `{"level": 0..max}`, `{"delta": 1|-1}` o `{"mute": true|false}`.
   Future<Response> _setVolume(Request request) async {
@@ -190,7 +269,9 @@ class ReceiverServer {
   /// o `{"clear": true}`. Coordenadas normalizadas 0..1.
   Future<Response> _mask(Request request) async {
     final m = mask;
-    if (m == null) return _json({'ok': false, 'error': 'máscara no disponible'}, 500);
+    if (m == null) {
+      return _json({'ok': false, 'error': 'máscara no disponible'}, 500);
+    }
     final Map<String, dynamic> body;
     try {
       body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
@@ -228,10 +309,14 @@ class ReceiverServer {
       url: body['url']?.toString(),
     );
     if (uri == null) {
-      return _json({'ok': false, 'error': 'falta videoId (11 chars) o url de YouTube'}, 400);
+      return _json({
+        'ok': false,
+        'error': 'falta videoId (11 chars) o url de YouTube',
+      }, 400);
     }
     final label = body['title']?.toString() ?? uri.toString();
     try {
+      queue?.stop(); // un video elegido a mano termina la cola
       await openVideo(uri);
       state.add('▶  $label');
       return _json({'ok': true});
@@ -242,12 +327,15 @@ class ReceiverServer {
   }
 }
 
-Response _json(Map<String, Object?> data, [int status = 200, Map<String, String> headers = const {}]) =>
-    Response(
-      status,
-      body: jsonEncode(data),
-      headers: {'content-type': 'application/json', ...headers},
-    );
+Response _json(
+  Map<String, Object?> data, [
+  int status = 200,
+  Map<String, String> headers = const {},
+]) => Response(
+  status,
+  body: jsonEncode(data),
+  headers: {'content-type': 'application/json', ...headers},
+);
 
 const _corsHeaders = {
   'access-control-allow-origin': '*',
@@ -256,14 +344,19 @@ const _corsHeaders = {
 };
 
 Middleware _cors() => createMiddleware(
-      requestHandler: (r) => r.method == 'OPTIONS' ? Response.ok('', headers: _corsHeaders) : null,
-      responseHandler: (r) => r.change(headers: _corsHeaders),
-    );
+  requestHandler: (r) =>
+      r.method == 'OPTIONS' ? Response.ok('', headers: _corsHeaders) : null,
+  responseHandler: (r) => r.change(headers: _corsHeaders),
+);
 
 /// IP de wlan0 (o la primera que no sea loopback), para el QR y la pantalla.
 Future<String?> _lanAddress() async {
-  final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
-  interfaces.sort((a, b) => (a.name == 'wlan0' ? 0 : 1) - (b.name == 'wlan0' ? 0 : 1));
+  final interfaces = await NetworkInterface.list(
+    type: InternetAddressType.IPv4,
+  );
+  interfaces.sort(
+    (a, b) => (a.name == 'wlan0' ? 0 : 1) - (b.name == 'wlan0' ? 0 : 1),
+  );
   for (final i in interfaces) {
     for (final a in i.addresses) {
       if (!a.isLoopback) return a.address;
