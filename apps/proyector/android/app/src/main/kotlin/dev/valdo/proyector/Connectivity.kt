@@ -15,28 +15,34 @@ object Connectivity {
     // HID host (controles, teclados) no tiene constante pública; su valor es 4.
     private val profiles = intArrayOf(BluetoothProfile.A2DP, BluetoothProfile.HEADSET, 4)
     private val proxies = mutableMapOf<Int, BluetoothProfile>()
+    private val pending = mutableSetOf<Int>()
 
     fun init(context: Context) {
         val adapter = adapter(context) ?: return
         for (p in profiles) {
+            if (proxies.containsKey(p) || pending.contains(p)) continue
+            pending.add(p)
             try {
                 adapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
                     override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
                         proxies[profile] = proxy
+                        pending.remove(profile)
                     }
 
                     override fun onServiceDisconnected(profile: Int) {
                         proxies.remove(profile)
                     }
-                }, p)
+                }, p).also { ok -> if (!ok) pending.remove(p) }
             } catch (_: Exception) {
-                // Perfil no disponible en este equipo.
+                pending.remove(p) // Bluetooth apagado o perfil no disponible: se reintenta luego.
             }
         }
     }
 
     @Suppress("DEPRECATION")
     fun snapshot(context: Context): Map<String, Any?> {
+        // Al arrancar el Bluetooth puede no estar listo aún: se reintenta aquí.
+        if (proxies.size < profiles.size) init(context)
         val wm = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val info = try { wm.connectionInfo } catch (_: Exception) { null }
         val connected = info != null && info.networkId != -1

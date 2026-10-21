@@ -115,10 +115,14 @@ class TradingController {
     } else {
       state.setQuotes(quotes);
     }
-    final next = UsMarketHours.nextRefresh(
-      DateTime.now(),
-      lastMarketState: quotes.isEmpty ? null : quotes.values.first.marketState,
-    );
+    // Sin respuesta (p. ej. sin internet justo al arrancar): reintenta en 1
+    // minuto aunque el mercado esté cerrado, hasta tener precios.
+    final next = quotes.isEmpty
+        ? DateTime.now().add(const Duration(minutes: 1))
+        : UsMarketHours.nextRefresh(
+            DateTime.now(),
+            lastMarketState: quotes.values.first.marketState,
+          );
     state.setQuotesLoading(false, nextAt: next);
     if (_active) _schedule(next);
   }

@@ -414,10 +414,10 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     } finally {
       quotesLoading = false;
       if (_polling) {
-        nextQuotesAt = UsMarketHours.nextRefresh(
-          DateTime.now(),
-          lastMarketState: q.isEmpty ? null : q.values.first.marketState,
-        );
+        // Sin respuesta: reintenta en 1 minuto aunque el mercado esté cerrado.
+        nextQuotesAt = q.isEmpty
+            ? DateTime.now().add(const Duration(minutes: 1))
+            : UsMarketHours.nextRefresh(DateTime.now(), lastMarketState: q.values.first.marketState);
         _quotesTimer?.cancel();
         _quotesTimer = Timer(nextQuotesAt!.difference(DateTime.now()), refreshQuotes);
       }
