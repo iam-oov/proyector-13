@@ -77,10 +77,11 @@ tools/proyector-setup.sh debloat <ip>     # lista de malware/basura conocida pre
 - Agrega lo nuevo a `UNINSTALL` en `tools/proyector-setup.sh` con un comentario, para el
   siguiente equipo.
 
-Luego, una sola AskUserQuestion (multiSelect) con los pasos que aplican:
-- Instalar el receptor (siempre recomendado).
-- Hacerlo el inicio (nombra el launcher detectado).
-- ADB al reiniciar (solo con root).
+Luego, una sola AskUserQuestion con dos preguntas:
+- Pasos (multiSelect): instalar el receptor (siempre recomendado), hacerlo el inicio
+  (nombra el launcher detectado), ADB al reiniciar (solo con root).
+- Título del inicio: "¿Qué título quieres en el inicio?" con opciones "Familia HG"
+  (el de la casa) y otra sugerencia; el usuario escribe el suyo en "Other".
 
 ## 3. Instalar el receptor
 
@@ -102,6 +103,16 @@ Solo con el sí del paso 2. El paquete sale de `inspect` ("launcher del fabrican
 Desactivar el del fabricante es lo único que funciona (set-home-activity y el rol HOME no
 bastan). El script se niega si el receptor no está instalado, para no dejar el equipo sin
 inicio, y verifica que el inicio cambió. Comparte la línea de cómo revertir.
+
+## 4b. Título del inicio
+
+```
+tools/proyector-setup.sh title <ip> "<título>"
+```
+
+Con el título que eligió en el paso 2 (si eligió "Familia HG", no hace falta: es el de
+por defecto). Funciona sin root: abre el receptor con el extra `homeTitle`, que lo guarda
+en el equipo. Se puede cambiar cuando sea con el mismo comando.
 
 ## 5. Quitar apps basura
 

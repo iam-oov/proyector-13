@@ -7,6 +7,7 @@
 #   tools/proyector-setup.sh inspect <ip>           solo lectura: qué hay y qué falta
 #   tools/proyector-setup.sh install <ip>           compila, instala, da permisos y abre la app
 #   tools/proyector-setup.sh home    <ip> <pkg>     desactiva el launcher del fabricante
+#   tools/proyector-setup.sh title   <ip> "<texto>" título del inicio (por defecto "Familia HG")
 #   tools/proyector-setup.sh debloat <ip> [--apply] quita apps basura/malware conocidas (sin --apply solo lista)
 #   tools/proyector-setup.sh bootup  <ip>           ADB por red al arrancar (con root)
 #   tools/proyector-setup.sh scan    <ip>           busca malware: apps disfrazadas, arranque sin Play, conexiones
@@ -152,6 +153,16 @@ set_home() {
   ok "inicio = nuestro launcher · revertir: adb -s $S shell pm enable $oem"
 }
 
+set_title() {
+  local t=$1
+  [[ -n $t ]] || die "falta el título"
+  installed $APP || die "primero instala el receptor"
+  # (qq): el texto llega como un solo argumento al shell del equipo, con espacios y acentos.
+  sh_ "am start -n $APP/.MainActivity --es homeTitle ${(qq)t}" >/dev/null
+  sh_ input keyevent KEYCODE_HOME
+  ok "título del inicio: $t"
+}
+
 debloat() {
   local apply=${1:-} disabled; disabled=$(sh_ pm list packages -d)
   local n=0
@@ -268,6 +279,7 @@ case $cmd in
   install) install_app ;;
   home) [[ -n ${3:-} ]] || die "falta el paquete del launcher del fabricante"; set_home "$3" ;;
   debloat) debloat "${3:-}" ;;
+  title) set_title "${3:-}" ;;
   bootup) bootup ;;
   scan) scan ;;
   watch) watch_ "${3:-600}" ;;
