@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
-import 'config.dart';
 import 'model.dart';
 import 'now_page.dart';
 
@@ -28,12 +27,6 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     final model = widget.model;
-    if (!Config.hasYouTube) {
-      return const Padding(
-        padding: EdgeInsets.all(20),
-        child: Notice('Falta YOUTUBE_API_KEY: compila con --dart-define-from-file=../../.env', error: true),
-      );
-    }
     return ListenableBuilder(
       listenable: model,
       builder: (context, _) => Column(
