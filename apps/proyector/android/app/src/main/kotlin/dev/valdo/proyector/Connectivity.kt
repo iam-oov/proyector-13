@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
+import android.net.wifi.SupplicantState
 import android.net.wifi.WifiManager
 
 // Wi-Fi (nombre e intensidad) y dispositivos Bluetooth conectados, para el inicio.
@@ -45,7 +46,9 @@ object Connectivity {
         if (proxies.size < profiles.size) init(context)
         val wm = context.getSystemService(Context.WIFI_SERVICE) as WifiManager
         val info = try { wm.connectionInfo } catch (_: Exception) { null }
-        val connected = info != null && info.networkId != -1
+        // Android 13 oculta el networkId (-1) a apps normales: se usa el estado del supplicant.
+        val connected = info != null &&
+            (info.supplicantState == SupplicantState.COMPLETED || info.ipAddress != 0)
         val ssid = info?.ssid?.trim('"')?.takeUnless { it.isBlank() || it == "<unknown ssid>" }
         val rssi = info?.rssi ?: -127
         val wifi = if (!connected) null else mapOf(
