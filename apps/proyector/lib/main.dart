@@ -174,7 +174,15 @@ class StatusScreen extends StatelessWidget {
                               ),
                             ),
                           ],
-                          const SizedBox(height: 36),
+                          const SizedBox(height: 12),
+                          // Si alguien de fuera vio el QR: código nuevo y todos re-escanean.
+                          TextButton.icon(
+                            autofocus: !state.spotifyLinked,
+                            onPressed: () => _confirmRegenerate(context),
+                            icon: const Icon(Icons.key),
+                            label: const Text('Regenerar código'),
+                          ),
+                          const SizedBox(height: 24),
                           Text('Últimos envíos', style: text.titleMedium),
                           const SizedBox(height: 12),
                           if (state.events.isEmpty)
@@ -209,6 +217,31 @@ class StatusScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmRegenerate(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Regenerar el código?'),
+        content: const Text(
+          'Todos los teléfonos vinculados dejarán de poder mandar videos '
+          'hasta que vuelvan a escanear el QR nuevo.',
+        ),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Regenerar'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await state.regenerateCode();
   }
 
   static String _hhmm(DateTime t) =>

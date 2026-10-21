@@ -204,7 +204,9 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   /// Guarda la pantalla del QR (o actualiza la que ya estaba con ese id) y la activa.
   Future<void> addScreen(PairingPayload payload) async {
     final screen = Screen.fromPayload(payload);
-    final i = screens.indexWhere((s) => s.id == screen.id);
+    // Misma pantalla con código regenerado (id nuevo, misma dirección): reemplaza.
+    var i = screens.indexWhere((s) => s.id == screen.id);
+    if (i < 0) i = screens.indexWhere((s) => s.address == screen.address);
     if (i >= 0) {
       screens[i] = screen;
     } else {

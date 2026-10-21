@@ -58,6 +58,11 @@ class ReceiverState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> regenerateCode() async {
+    await identity.regenerate();
+    add('🔑  Código nuevo: los teléfonos tienen que volver a escanear');
+  }
+
   List<String> get phones => identity.phones;
 
   Future<void> addPhone(String name) async {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared/shared.dart';
 
 import 'model.dart';
@@ -31,6 +32,42 @@ Future<String?> askPhoneName(BuildContext context, {required String initial}) {
       ],
     ),
   );
+}
+
+/// Vincula sin cámara: toma el código del portapapeles (o lo pide escrito).
+Future<void> pasteAndAddScreen(BuildContext context, ControlModel model) async {
+  if (!await ensurePhoneName(context, model)) return;
+  final clip = (await Clipboard.getData(Clipboard.kTextPlain))?.text ?? '';
+  var payload = PairingPayload.tryParse(clip);
+  if (payload == null && context.mounted) {
+    final controller = TextEditingController(text: clip.trim().startsWith('proyector://') ? clip.trim() : '');
+    final text = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pegar código'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(hintText: 'proyector://pair?…'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.of(context).pop(controller.text), child: const Text('Vincular')),
+        ],
+      ),
+    );
+    if (text == null) return;
+    payload = PairingPayload.tryParse(text);
+  }
+  if (!context.mounted) return;
+  if (payload == null) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ese código no es de Proyector')));
+    return;
+  }
+  await model.addScreen(payload);
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Conectado a "${payload.name}"')));
 }
 
 /// Abre la cámara, y si el QR es de un proyector lo guarda y lo activa.
@@ -122,6 +159,7 @@ class ScreensSheet extends StatelessWidget {
                   onSelected: (action) => _onAction(context, action, s),
                   itemBuilder: (_) => const [
                     PopupMenuItem(value: 'rename', child: Text('Renombrar')),
+                    PopupMenuItem(value: 'copy', child: Text('Copiar código (para otro teléfono)')),
                     PopupMenuItem(value: 'remove', child: Text('Eliminar')),
                   ],
                 ),
@@ -141,16 +179,29 @@ class ScreensSheet extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    scanAndAddScreen(context, model);
-                  },
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('Escanear QR'),
-                ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        scanAndAddScreen(context, model);
+                      },
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('Escanear QR'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Sin cámara: pegar el código que otro teléfono copió y compartió.
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      pasteAndAddScreen(context, model);
+                    },
+                    icon: const Icon(Icons.content_paste),
+                    label: const Text('Pegar código'),
+                  ),
+                ],
               ),
             ),
           ],
@@ -160,6 +211,16 @@ class ScreensSheet extends StatelessWidget {
   }
 
   Future<void> _onAction(BuildContext context, String action, Screen s) async {
+    if (action == 'copy') {
+      final code = PairingPayload(id: s.id, name: s.name, host: s.host, port: s.port, token: s.token).toUri().toString();
+      await Clipboard.setData(ClipboardData(text: code));
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Código copiado: mándalo por WhatsApp y en el otro teléfono toca "Pegar código"')),
+        );
+      }
+      return;
+    }
     if (action == 'remove') {
       await model.removeScreen(s.id);
       return;

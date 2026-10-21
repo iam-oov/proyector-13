@@ -25,8 +25,8 @@ class ReceiverIdentity {
   ReceiverIdentity._(this._file, this.id, this.token, this._name, this.phones);
 
   final File? _file;
-  final String id;
-  final String token;
+  String id;
+  String token;
   String _name;
 
   /// Nombres de los teléfonos que han hecho POST /pair (máximo 20).
@@ -87,6 +87,15 @@ class ReceiverIdentity {
   }
 
   /// True si el teléfono es nuevo (se compara sin mayúsculas).
+  /// Código nuevo: id y token nuevos y se olvidan los teléfonos. Los que ya
+  /// estaban vinculados tienen que volver a escanear el QR.
+  Future<void> regenerate() async {
+    id = randomScreenId();
+    token = randomUrlSafe(32);
+    phones.clear();
+    await _save();
+  }
+
   Future<bool> addPhone(String name) async {
     var n = name.trim();
     if (n.isEmpty) return false;
