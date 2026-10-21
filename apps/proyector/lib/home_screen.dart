@@ -25,11 +25,20 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   List<TvApp> _apps = [];
   String? _error;
+  // Al volver al inicio se relee la lista: así aparecen las apps recién instaladas.
+  late final _lifecycle = AppLifecycleListener(onResume: _load);
 
   @override
   void initState() {
     super.initState();
+    _lifecycle;
     _load();
+  }
+
+  @override
+  void dispose() {
+    _lifecycle.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
