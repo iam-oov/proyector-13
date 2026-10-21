@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
@@ -98,7 +99,23 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     _poll = Timer.periodic(const Duration(seconds: 3), (_) => _tick());
   }
 
+  /// En línea o no, por pantalla (los puntos de la fila de equipos). La elegida se
+  /// revisa en cada vuelta; las demás, cada cuatro (unos 12 s).
+  final _online = <String, bool>{};
+  int _ticks = 0;
+
+  bool? isScreenOnline(String id) => id == selectedScreenId && screenChecked ? projectorOnline : _online[id];
+
+  Future<void> _checkOthers() async {
+    await Future.wait([
+      for (final s in screens.where((s) => s.id != selectedScreenId))
+        (s.isTv ? TvClient(s).status().then((st) => st != null) : ProjectorClient(s).health().then((h) => h?.id == s.id))
+            .then((on) => _online[s.id] = on),
+    ]);
+  }
+
   Future<void> _tick() async {
+    if (_ticks++ % 4 == 0) unawaited(_checkOthers().then((_) => notifyListeners()));
     final s = selectedScreen;
     if (s == null) {
       projectorOnline = false;
@@ -133,6 +150,13 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       screenMediaPlaying = projectorOnline && h!.mediaPlaying;
       screenChecked = true;
       volume = projectorOnline ? await ProjectorClient(s).volume() : null;
+      // El proyector se cambió de red o de IP: buscarlo solo (una vez cada 2 min).
+      if (!projectorOnline && !rediscovering) {
+        final last = _lastRediscover[s.id];
+        if (last == null || DateTime.now().difference(last) > const Duration(minutes: 2)) {
+          unawaited(rediscover(s.id));
+        }
+      }
       if (projectorOnline) {
         // La pantalla es dueña de su nombre: si la renombró otro teléfono, nos enteramos aquí.
         if (h!.name != s.name) await _updateScreen(s.copyWith(name: h.name));
@@ -288,6 +312,96 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // --- Cambio de red / IP ---------------------------------------------------------
+
+  /// Buscando en la red una pantalla que dejó de responder.
+  bool rediscovering = false;
+  final _lastRediscover = <String, DateTime>{};
+
+  /// Recorre la red del teléfono (y la de la IP anterior) buscando el receptor
+  /// con el mismo id del QR en su puerto; si lo encuentra, guarda la IP nueva.
+  /// Las TVs no tienen id: para ellas solo sirve [changeAddress].
+  Future<bool> rediscover(String id) async {
+    final i = screens.indexWhere((s) => s.id == id);
+    if (i < 0 || screens[i].isTv || rediscovering) return false;
+    final s = screens[i];
+    rediscovering = true;
+    _lastRediscover[id] = DateTime.now();
+    notifyListeners();
+    try {
+      final prefixes = <String>{};
+      final ifaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+      // Solo el Wi-Fi (wlan0): con datos móviles se recorrería la red de la compañía.
+      final wifi = ifaces.where((i) => i.name.startsWith('wlan') || i.name.startsWith('eth')).toList();
+      for (final iface in wifi.isEmpty ? ifaces : wifi) {
+        for (final a in iface.addresses) {
+          if (!a.isLoopback) prefixes.add(a.address.substring(0, a.address.lastIndexOf('.')));
+        }
+      }
+      prefixes.add(s.host.substring(0, s.host.lastIndexOf('.')));
+      final hosts = [for (final p in prefixes) for (var n = 1; n < 255; n++) '$p.$n'];
+      var answered = 0;
+      // De 64 en 64: primero ver quién abre el puerto, luego preguntarle su id.
+      for (var start = 0; start < hosts.length; start += 64) {
+        final batch = hosts.sublist(start, (start + 64).clamp(0, hosts.length));
+        final open = await Future.wait(batch.map((h) async {
+          try {
+            final sock = await Socket.connect(h, s.port, timeout: const Duration(milliseconds: 800));
+            sock.destroy();
+            return h;
+          } catch (_) {
+            return null;
+          }
+        }));
+        for (final h in open.whereType<String>()) {
+          answered++;
+          final health = await ProjectorClient(s.copyWith(host: h)).health();
+          if (health?.id == s.id) {
+            await _updateScreen(s.copyWith(host: h));
+            status = '${s.name} cambió de IP: ahora es $h';
+            error = null;
+            if (id == selectedScreenId) await _tick();
+            return true;
+          }
+        }
+      }
+      status = 'No encontré a ${s.name}: busqué en ${prefixes.map((p) => '$p.x').join(' y ')} '
+          '($answered con el puerto ${s.port} abierto)';
+      return false;
+    } finally {
+      rediscovering = false;
+      notifyListeners();
+    }
+  }
+
+  /// Cambia la IP (y el puerto) a mano. Para un receptor, comprueba que en esa
+  /// dirección responda el mismo equipo; para una TV, que tenga YouTube por DIAL.
+  Future<void> changeAddress(String id, String address) => _run(() async {
+        final i = screens.indexWhere((s) => s.id == id);
+        if (i < 0) return;
+        final s = screens[i];
+        final parts = address.trim().split(':');
+        final host = parts.first.replaceAll(RegExp(r'[^0-9.]'), '');
+        final port = parts.length > 1 ? int.tryParse(parts[1]) ?? s.port : s.port;
+        if (!RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host)) throw StateError('"$address" no es una IP válida');
+        if (s.isTv) {
+          final tv = Screen.tv(host, name: s.name);
+          if (await TvClient(tv).status() == null) throw StateError('En $host no responde una TV con YouTube');
+          // El id de la TV sale de su IP: se reemplaza la entrada.
+          screens[i] = tv;
+          if (selectedScreenId == id) selectedScreenId = tv.id;
+          await _persistScreens();
+        } else {
+          final moved = s.copyWith(host: host, port: port);
+          final h = await ProjectorClient(moved).health();
+          if (h == null) throw StateError('En $host:$port no responde ningún proyector');
+          if (h.id != s.id) throw StateError('En $host responde otra pantalla ("${h.name}"): escanea su QR para agregarla');
+          await _updateScreen(moved);
+        }
+        status = '${s.name} ahora está en $host';
+        await _tick();
+      });
+
   Future<void> _updateScreen(Screen updated) async {
     final i = screens.indexWhere((s) => s.id == updated.id);
     if (i < 0) return;
@@ -437,6 +551,10 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Canción cuyo video se mandó a mano por última vez.
   String? _sentKey;
+
+  /// Para marcar en las listas lo último que se mandó a la pantalla.
+  bool isSentTrack(Track t) => _sentKey == '${t.artist}|${t.title}';
+  String? lastSentVideoId;
 
   /// El status es solo el aviso de "enviado": la pestaña Ahora ya lo muestra
   /// en la tarjeta y no lo repite (Buscar y Playlists sí, en su SnackBar).
@@ -688,6 +806,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     } else {
       await ProjectorClient(s).play(video);
     }
+    lastSentVideoId = video.id;
     status = _sendStatus = 'En ${s.name}: ${video.title}';
   }
 
