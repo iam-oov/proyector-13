@@ -27,8 +27,14 @@ tools/proyector-setup.sh connect <ip>
 ```
 
 Si falla, el mensaje dice cuál de estos casos es. Explícaselo al usuario y detente:
-- **No responde en la red**: el equipo está apagado o tiene otra IP. Pide que lo prenda o que
-  revise la IP en Ajustes → Red.
+- **No es Android** (sale de código 2 y lista lo que encontró: DIAL, Roku, Samsung Tizen,
+  LG webOS): sin ADB no se instala el receptor ni se limpia. Explica qué sí se puede: con
+  DIAL, `tools/proyector-setup.sh play <ip> <videoId>` abre YouTube con un video (si la TV
+  pide elegir cuenta, se elige con su control). Ejemplo: Hyundai HYLED3249NiM (Linux MStar)
+  solo abre DIAL en :56789 con YouTube y Netflix.
+- **No responde** (ni ADB ni servicios de TV): apagado, otra IP u otra red. El mensaje dice
+  la IP de la Mac: si es de otra red que la TV, hay que cambiar el Wi-Fi de la Mac. Muchas
+  TVs no contestan ping, así que no lo uses para decidir que está apagada.
 - **Responde pero sin ADB**: hay que activarlo a mano en el equipo.
   - Famifun / firmware Jixin: Ajustes generales → Configuración del sistema → Acerca de la
     proyección → tocar varias veces "Versión de Android". Escucha en el puerto 3333.
@@ -43,8 +49,18 @@ tools/proyector-setup.sh inspect <ip>
 ```
 
 Resume en una tabla corta: equipo, root sí/no, launcher actual (paquete del fabricante),
-receptor y permisos, apps basura activas, bootup.sh y la IP. Las líneas `✓` ya están
-hechas; las `•` son lo que falta.
+receptor y permisos, apps basura activas, bootup.sh, hora y la IP. Las líneas `✓` ya están
+hechas; las `•` son lo que falta. Si sale `⚠ ADB sin autorización` (`ro.adb.secure` en 0 o vacío, como en el Famifun),
+díselo claro: cualquier aparato del Wi-Fi entra al equipo (con root si lo tiene) mientras
+el ADB por red esté abierto; se resuelve en el paso 8.
+
+**Respaldo:** el primer paso que cambia algo (home, debloat --apply, timezone, bootup, dns,
+adbclose) guarda antes el estado del equipo en `~/.proyector-setup/<modelo>-<serie>.txt`
+(fuera del repo): estado de cada paquete de las listas, dueño del inicio, zona horaria, DNS,
+bootup.sh y puerto de ADB. Se guarda una sola vez: en un equipo nuevo es el de fábrica; en uno
+que ya se había limpiado antes (el Famifun), es el estado de ese momento.
+`tools/proyector-setup.sh restore <ip>` lo regresa todo (lo borrado de /data/app no vuelve:
+era malware sin copia en el sistema).
 
 ## 2b. Seguridad primero (antes de instalar nada)
 
@@ -77,9 +93,14 @@ tools/proyector-setup.sh debloat <ip>     # lista de malware/basura conocida pre
 - Agrega lo nuevo a `UNINSTALL` en `tools/proyector-setup.sh` con un comentario, para el
   siguiente equipo.
 
+Nunca quites lo que está en `PROTECT` del script (keystone de Droidlogic: sin él se deforma
+la imagen proyectada; btspeaker de Jixin; teclado; ajustes; Wi-Fi; Bluetooth): `debloat` ya
+lo salta, y lo mismo vale para lo que propongas a mano.
+
 Luego, una sola AskUserQuestion con dos preguntas:
 - Pasos (multiSelect): instalar el receptor (siempre recomendado), hacerlo el inicio
-  (nombra el launcher detectado), ADB al reiniciar (solo con root).
+  (nombra el launcher detectado), ADB al reiniciar (solo con root), DNS que bloquea
+  anuncios (Android 9+).
 - Título del inicio: "¿Qué título quieres en el inicio?" con opciones "Familia HG"
   (el de la casa) y otra sugerencia; el usuario escribe el suyo en "Other".
 
@@ -148,6 +169,17 @@ Solo con root. Es persistencia en el sistema: pide un sí explícito y muestra c
   pone. Quitar: `su 0 setprop persist.adb.tcp.port ''`.
 Sin esto, cada reinicio obliga a reactivar el ADB a mano.
 
+## 6b. DNS que bloquea anuncios (opcional)
+
+```
+tools/proyector-setup.sh dns <ip> on     # dns.adguard-dns.com en todo el equipo
+tools/proyector-setup.sh dns <ip> off    # vuelve al automático
+```
+
+Bloquea anuncios y rastreadores de las apps y del sistema, y sobrevive reinicios. No quita
+los anuncios de YouTube. Contra: AdGuard ve las consultas DNS del equipo. Si con él el
+equipo se queda sin internet, el script regresa solo al DNS automático.
+
 ## 7. Cierre
 
 1. **IP fija** (siempre a mano, con el control; automatizarla editando
@@ -161,3 +193,28 @@ Sin esto, cada reinicio obliga a reactivar el ADB a mano.
    `cd apps/control && flutter build apk --release --dart-define-from-file=../../.env`, luego
    `adb -s <serial-del-teléfono> install -r build/app/outputs/flutter-apk/app-release.apk`.
 3. Correr `inspect` otra vez y mostrar el resultado: debería salir todo con `✓`.
+
+## 8. Cerrar el ADB (seguridad)
+
+Si `inspect` mostró `⚠ ADB sin autorización`, recomienda cerrarlo al terminar:
+
+```
+tools/proyector-setup.sh adbclose <ip>
+```
+
+Corta la conexión. En Jixin mueve `/data/bootup.sh` a `/data/bootup.sh.off` (su
+`check_adb` lo deja apagado en cada arranque); en otros borra `persist.adb.tcp.port`. El
+receptor, el inicio y el teléfono siguen funcionando sin ADB. Contra: para volver a
+administrar el equipo hay que reactivar el ADB a mano (paso 1) y, en Jixin, regresar
+`bootup.sh.off` a `bootup.sh`. Pregunta antes: es decisión del usuario dejarlo abierto
+(cómodo) o cerrado (seguro).
+
+## Restaurar
+
+```
+tools/proyector-setup.sh restore <ip>
+```
+
+Regresa lo guardado en el respaldo (ver paso 2). El receptor queda instalado; se quita en
+Ajustes → Apps.
+
