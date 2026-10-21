@@ -19,6 +19,8 @@ class ReceiverState extends ChangeNotifier {
   List<Trade> trades = [];
   Map<String, Quote> quotes = {};
   DateTime? quotesAt;
+  DateTime? nextQuotesAt;
+  bool quotesLoading = false;
   String? quotesError;
 
   /// Contenido del QR. Null hasta que se conoce la IP.
@@ -77,6 +79,12 @@ class ReceiverState extends ChangeNotifier {
 
   void quoteError(String message) {
     quotesError = message;
+    notifyListeners();
+  }
+
+  void setQuotesLoading(bool loading, {DateTime? nextAt}) {
+    quotesLoading = loading;
+    if (nextAt != null) nextQuotesAt = nextAt;
     notifyListeners();
   }
 

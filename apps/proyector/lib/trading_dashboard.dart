@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
@@ -31,6 +33,10 @@ class TradingDashboard extends StatelessWidget {
                       Text('Trading', style: text.headlineMedium),
                       const Spacer(),
                       Text(_footer(state), style: text.bodyMedium?.copyWith(color: Colors.white54)),
+                      if (!state.quotesLoading && state.nextQuotesAt != null) ...[
+                        const SizedBox(width: 16),
+                        _Countdown(until: state.nextQuotesAt!, style: text.bodyMedium?.copyWith(color: Colors.white70)),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 24),
@@ -63,9 +69,44 @@ class TradingDashboard extends StatelessWidget {
 
   static String _footer(ReceiverState state) {
     final at = state.quotesAt;
+    if (state.quotesLoading) return 'Actualizando precios de Yahoo…';
     if (at == null) return 'Pidiendo precios a Yahoo Finance…';
     final open = state.quotes.values.any((q) => q.isMarketOpen);
     return '${open ? 'Mercado abierto' : 'Mercado cerrado'} · precios de ${_hhmm(at)}';
+  }
+}
+
+/// "Siguiente actualización 0:42": se redibuja cada segundo.
+class _Countdown extends StatefulWidget {
+  const _Countdown({required this.until, this.style});
+
+  final DateTime until;
+  final TextStyle? style;
+
+  @override
+  State<_Countdown> createState() => _CountdownState();
+}
+
+class _CountdownState extends State<_Countdown> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var left = widget.until.difference(DateTime.now()).inSeconds;
+    if (left < 0) left = 0;
+    return Text('⟳ ${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}', style: widget.style);
   }
 }
 
@@ -112,7 +153,7 @@ class _PositionsTable extends StatelessWidget {
         defaultVerticalAlignment: TableCellVerticalAlignment.middle,
         children: [
           TableRow(children: [
-            for (final h in ['Símbolo', 'Lado', 'Acciones', 'Invertido', 'Entrada', 'Precio', 'Hoy', 'P&L', '%'])
+            for (final h in ['Símbolo', 'Lado', 'Acciones', 'Invertido', 'Entrada', 'Precio Yahoo', 'Hoy', 'P&L', '%'])
               Padding(padding: const EdgeInsets.only(bottom: 10), child: Text(h, style: head)),
           ]),
           for (final p in positions)

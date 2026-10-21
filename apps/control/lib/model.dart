@@ -57,6 +57,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   List<Trade> trades = [];
   Map<String, Quote> quotes = {};
   DateTime? quotesAt;
+  DateTime? nextQuotesAt;
   bool quotesLoading = false;
   bool tradingOnProjector = false;
   Timer? _quotesTimer;
@@ -345,19 +346,24 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       }
     } finally {
       quotesLoading = false;
+      if (_quotesTimer != null) nextQuotesAt = DateTime.now().add(_quotesEvery);
       notifyListeners();
     }
   }
 
+  static const _quotesEvery = Duration(minutes: 1);
+
   void startQuotePolling() {
     _quotesTimer?.cancel();
+    _quotesTimer = Timer.periodic(_quotesEvery, (_) => refreshQuotes());
+    nextQuotesAt = DateTime.now().add(_quotesEvery);
     unawaited(refreshQuotes());
-    _quotesTimer = Timer.periodic(const Duration(minutes: 1), (_) => refreshQuotes());
   }
 
   void stopQuotePolling() {
     _quotesTimer?.cancel();
     _quotesTimer = null;
+    nextQuotesAt = null;
   }
 
   /// Manda la bitácora al proyector y lo pone en modo Trading (o lo quita).

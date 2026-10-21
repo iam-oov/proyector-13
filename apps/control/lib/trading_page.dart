@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
@@ -53,7 +55,12 @@ class _TradingPageState extends State<TradingPage> {
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
             children: [
-              _StatsHeader(stats: s, quotesAt: model.quotesAt, loading: model.quotesLoading),
+              _StatsHeader(
+                stats: s,
+                quotesAt: model.quotesAt,
+                nextAt: model.nextQuotesAt,
+                loading: model.quotesLoading,
+              ),
               const SizedBox(height: 12),
               Row(
                 children: [
@@ -135,10 +142,11 @@ class _TradingPageState extends State<TradingPage> {
 }
 
 class _StatsHeader extends StatelessWidget {
-  const _StatsHeader({required this.stats, required this.quotesAt, required this.loading});
+  const _StatsHeader({required this.stats, required this.quotesAt, required this.nextAt, required this.loading});
 
   final PortfolioStats stats;
   final DateTime? quotesAt;
+  final DateTime? nextAt;
   final bool loading;
 
   @override
@@ -163,13 +171,21 @@ class _StatsHeader extends StatelessWidget {
             const SizedBox(height: 12),
             Row(children: [stat('Realizado hoy', stats.realizedToday), stat('Realizado total', stats.realizedTotal)]),
             const SizedBox(height: 8),
-            Text(
-              loading
-                  ? 'Actualizando precios…'
-                  : quotesAt == null
-                      ? 'Sin precios todavía'
-                      : 'Precios de Yahoo Finance · ${_hhmm(quotesAt!)}',
-              style: text.bodySmall?.copyWith(color: Colors.white38),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    loading
+                        ? 'Actualizando precios…'
+                        : quotesAt == null
+                            ? 'Sin precios todavía'
+                            : 'Precios de Yahoo Finance · ${_hhmm(quotesAt!)}',
+                    style: text.bodySmall?.copyWith(color: Colors.white38),
+                  ),
+                ),
+                if (!loading && nextAt != null)
+                  CountdownText(until: nextAt!, prefix: 'siguiente en ', style: text.bodySmall?.copyWith(color: Colors.white38)),
+              ],
             ),
           ],
         ),
@@ -435,6 +451,41 @@ class _DateRow extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// "siguiente en 0:42": se redibuja cada segundo hasta [until].
+class CountdownText extends StatefulWidget {
+  const CountdownText({super.key, required this.until, this.prefix = '', this.style});
+
+  final DateTime until;
+  final String prefix;
+  final TextStyle? style;
+
+  @override
+  State<CountdownText> createState() => _CountdownTextState();
+}
+
+class _CountdownTextState extends State<CountdownText> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var left = widget.until.difference(DateTime.now()).inSeconds;
+    if (left < 0) left = 0;
+    return Text('${widget.prefix}${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}', style: widget.style);
   }
 }
 

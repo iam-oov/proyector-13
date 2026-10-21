@@ -73,13 +73,16 @@ class TradingController {
     }
     final want = show && state.trades.any((t) => t.isOpen);
     if (want && _timer == null) {
+      _timer = Timer.periodic(_every, (_) => refresh());
       unawaited(refresh());
-      _timer = Timer.periodic(const Duration(minutes: 1), (_) => refresh());
     } else if (!want && _timer != null) {
       _timer!.cancel();
       _timer = null;
+      state.nextQuotesAt = null;
     }
   }
+
+  static const _every = Duration(minutes: 1);
 
   /// Llamado por el servidor después de un POST /trading.
   Future<void> onChanged() async {
@@ -90,11 +93,14 @@ class TradingController {
   Future<void> refresh() async {
     final symbols = state.trades.where((t) => t.isOpen).map((t) => t.symbol).toSet();
     if (symbols.isEmpty) return;
+    state.setQuotesLoading(true);
     final quotes = await _yahoo.quotes(symbols);
     if (quotes.isEmpty) {
       state.quoteError('Sin respuesta de Yahoo Finance');
     } else {
       state.setQuotes(quotes);
     }
+    // El countdown del tablero apunta al siguiente tick del timer.
+    state.setQuotesLoading(false, nextAt: _timer == null ? null : DateTime.now().add(_every));
   }
 }
