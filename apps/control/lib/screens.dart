@@ -50,6 +50,7 @@ class ScreenStore {
 
   static const _kScreens = 'screens';
   static const _kSelected = 'selected_screen_id';
+  static const _kPhoneName = 'phone_name';
 
   final FlutterSecureStorage _storage;
 
@@ -70,4 +71,9 @@ class ScreenStore {
 
   Future<void> saveSelectedId(String? id) =>
       id == null ? _storage.delete(key: _kSelected) : _storage.write(key: _kSelected, value: id);
+
+  /// Cómo se presenta este teléfono ante las pantallas ("Conectado: Valdo").
+  Future<String?> loadPhoneName() => _storage.read(key: _kPhoneName);
+
+  Future<void> savePhoneName(String name) => _storage.write(key: _kPhoneName, value: name);
 }

@@ -79,6 +79,13 @@ class StatusScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 16),
                         Text('Escanea el QR con la app Proyector en tu teléfono', style: text.bodyLarge),
+                        const SizedBox(height: 12),
+                        Text(
+                          state.phones.isEmpty ? 'Nadie conectado todavía' : 'Conectado: ${state.phones.join(', ')}',
+                          style: text.bodyLarge?.copyWith(color: Colors.white70),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                         const SizedBox(height: 36),
                         Text('Últimos envíos', style: text.titleMedium),
                         const SizedBox(height: 12),

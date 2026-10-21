@@ -1,9 +1,12 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'model.dart';
 import 'now_page.dart';
 import 'playlists_page.dart';
 import 'screens_sheet.dart';
+import 'search_page.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,7 +34,7 @@ class ControlApp extends StatelessWidget {
   }
 }
 
-/// Dos pestañas: "Ahora" (lo que suena) y "Playlists" (el catálogo).
+/// Pestañas: "Ahora" (lo que suena), "Buscar" (sin Spotify) y "Playlists" (con sesión).
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.model});
 
@@ -42,7 +45,8 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _tab = 0;
+  // "Ahora" va en el centro y es la pestaña inicial.
+  int _tab = 1;
 
   @override
   Widget build(BuildContext context) {
@@ -50,10 +54,11 @@ class _HomeShellState extends State<HomeShell> {
     return ListenableBuilder(
       listenable: model,
       builder: (context, _) {
-        final tab = model.loggedIn ? _tab : 0;
+        final titles = ['Buscar', 'Proyector', if (model.loggedIn) 'Playlists'];
+        final tab = math.min(_tab, titles.length - 1);
         return Scaffold(
           appBar: AppBar(
-            title: Text(tab == 0 ? 'Proyector' : 'Playlists'),
+            title: Text(titles[tab]),
             actions: [
               ScreenChip(model: model),
               if (model.loggedIn)
@@ -65,18 +70,21 @@ class _HomeShellState extends State<HomeShell> {
             ],
           ),
           body: SafeArea(
-            child: tab == 0 ? NowPage(model: model) : PlaylistsPage(model: model),
+            child: switch (tab) {
+              0 => SearchPage(model: model),
+              1 => NowPage(model: model),
+              _ => PlaylistsPage(model: model),
+            },
           ),
-          bottomNavigationBar: model.loggedIn
-              ? NavigationBar(
-                  selectedIndex: tab,
-                  onDestinationSelected: (i) => setState(() => _tab = i),
-                  destinations: const [
-                    NavigationDestination(icon: Icon(Icons.play_circle_outline), label: 'Ahora'),
-                    NavigationDestination(icon: Icon(Icons.queue_music), label: 'Playlists'),
-                  ],
-                )
-              : null,
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: tab,
+            onDestinationSelected: (i) => setState(() => _tab = i),
+            destinations: [
+              const NavigationDestination(icon: Icon(Icons.search), label: 'Buscar'),
+              const NavigationDestination(icon: Icon(Icons.play_circle_outline), label: 'Ahora'),
+              if (model.loggedIn) const NavigationDestination(icon: Icon(Icons.queue_music), label: 'Playlists'),
+            ],
+          ),
         );
       },
     );

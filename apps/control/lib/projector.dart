@@ -47,6 +47,25 @@ class ProjectorClient {
     }
   }
 
+  /// Se presenta ante la pantalla; opcionalmente la renombra. Devuelve el
+  /// nombre vigente de la pantalla y los teléfonos que conoce.
+  Future<({String name, List<String> phones})> pair(String phoneName, {String? screenName}) async {
+    final r = await http
+        .post(
+          _url('/pair'),
+          headers: {'content-type': 'application/json', ..._auth},
+          body: jsonEncode({'phoneName': phoneName, 'screenName': ?screenName}),
+        )
+        .timeout(const Duration(seconds: 5));
+    if (r.statusCode == 401) throw const ProjectorUnauthorized();
+    if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
+    final j = jsonDecode(r.body) as Map<String, dynamic>;
+    return (
+      name: (j['name'] as String?) ?? screen.name,
+      phones: [for (final p in (j['phones'] as List?) ?? const []) p.toString()],
+    );
+  }
+
   Future<void> play(VideoCandidate video) async {
     final r = await http
         .post(

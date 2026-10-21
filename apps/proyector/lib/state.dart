@@ -38,6 +38,14 @@ class ReceiverState extends ChangeNotifier {
     notifyListeners();
   }
 
+  List<String> get phones => identity.phones;
+
+  Future<void> addPhone(String name) async {
+    if (await identity.addPhone(name)) {
+      add('🔗  $name conectado');
+    }
+  }
+
   void add(String message, {bool error = false}) {
     events.insert(0, ReceiverEvent(DateTime.now(), message, error));
     if (events.length > 8) events.removeLast();

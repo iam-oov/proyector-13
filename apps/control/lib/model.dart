@@ -24,6 +24,10 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   /// La IP responde, pero con otro id: el receptor se reinstaló o la IP cambió de dueño.
   bool screenIdMismatch = false;
 
+  /// Cómo se presenta este teléfono ante las pantallas.
+  String? phoneName;
+  final _announced = <String>{};
+
   bool loggedIn = false;
   bool busy = false;
   Track? track;
@@ -42,6 +46,10 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   bool playlistsLoading = false;
   final _tracks = <String, List<Track>>{};
 
+  // Pestaña Buscar: para quien no tiene Spotify.
+  List<VideoCandidate> searchResults = [];
+  bool searching = false;
+
   Screen? get selectedScreen {
     for (final s in screens) {
       if (s.id == selectedScreenId) return s;
@@ -53,6 +61,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     screens = await _store.loadScreens();
     selectedScreenId = await _store.loadSelectedId();
+    phoneName = await _store.loadPhoneName();
     if (selectedScreen == null && screens.isNotEmpty) selectedScreenId = screens.first.id;
     loggedIn = await auth.isLoggedIn;
     if (loggedIn && !await auth.hasAllScopes) {
@@ -79,6 +88,14 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       final h = await ProjectorClient(s).health();
       screenIdMismatch = h != null && h.id != s.id;
       projectorOnline = h != null && h.id == s.id;
+      if (projectorOnline) {
+        // La pantalla es dueña de su nombre: si la renombró otro teléfono, nos enteramos aquí.
+        if (h!.name != s.name) await _updateScreen(s.copyWith(name: h.name));
+        if (!_announced.contains(s.id) && phoneName != null) {
+          _announced.add(s.id);
+          unawaited(_announce(s));
+        }
+      }
     }
     if (loggedIn) {
       try {
@@ -143,7 +160,38 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     status = 'Pantalla "${screen.name}" guardada';
     error = null;
     notifyListeners();
+    _announced.add(screen.id);
+    await _announce(screen);
     await _tick();
+  }
+
+  Future<void> setPhoneName(String name) async {
+    final n = name.trim();
+    if (n.isEmpty) return;
+    phoneName = n.length > 40 ? n.substring(0, 40) : n;
+    await _store.savePhoneName(phoneName!);
+    _announced.clear(); // que las pantallas se enteren del nombre nuevo
+    notifyListeners();
+  }
+
+  /// POST /pair: la pantalla muestra "Conectado: `nombre`". Si falla, no pasa nada.
+  Future<void> _announce(Screen s) async {
+    final name = phoneName;
+    if (name == null) return;
+    try {
+      final r = await ProjectorClient(s).pair(name);
+      if (r.name != s.name) await _updateScreen(s.copyWith(name: r.name));
+    } catch (_) {
+      // Receptor apagado o viejo: se reintenta en el siguiente arranque de la app.
+    }
+  }
+
+  Future<void> _updateScreen(Screen updated) async {
+    final i = screens.indexWhere((s) => s.id == updated.id);
+    if (i < 0) return;
+    screens[i] = updated;
+    await _persistScreens();
+    notifyListeners();
   }
 
   Future<void> selectScreen(String id) async {
@@ -155,13 +203,21 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     await _tick();
   }
 
+  /// Renombra la pantalla en el receptor (si responde) y en la lista local.
   Future<void> renameScreen(String id, String name) async {
     final n = name.trim();
     final i = screens.indexWhere((s) => s.id == id);
     if (i < 0 || n.isEmpty) return;
-    screens[i] = screens[i].copyWith(name: n);
-    await _persistScreens();
-    notifyListeners();
+    var finalName = n;
+    if (id == selectedScreenId && projectorOnline) {
+      try {
+        final r = await ProjectorClient(screens[i]).pair(phoneName ?? 'Teléfono', screenName: n);
+        finalName = r.name;
+      } catch (e) {
+        error = '$e';
+      }
+    }
+    await _updateScreen(screens[i].copyWith(name: finalName));
   }
 
   Future<void> removeScreen(String id) async {
@@ -217,6 +273,25 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<List<Track>> tracksOf(String playlistId) async =>
       _tracks[playlistId] ??= await spotify.tracks(playlistId);
+
+  // --- Buscar ------------------------------------------------------------------
+
+  /// Búsqueda libre en YouTube (categoría Música), en el orden que da YouTube.
+  Future<void> search(String query) async {
+    final q = query.trim();
+    if (q.isEmpty || searching) return;
+    searching = true;
+    error = null;
+    notifyListeners();
+    try {
+      searchResults = await youtube.search(q);
+    } catch (e) {
+      error = '$e';
+    } finally {
+      searching = false;
+      notifyListeners();
+    }
+  }
 
   // --- Enviar ------------------------------------------------------------------
 

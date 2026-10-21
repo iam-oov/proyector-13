@@ -23,6 +23,7 @@ class ReceiverServer {
   Future<void> start() async {
     final router = Router()
       ..get('/health', _health)
+      ..post('/pair', _auth(_pair))
       ..post('/play', _auth(_play));
     final handler = const Pipeline().addMiddleware(_cors()).addHandler(router.call);
     await shelf_io.serve(handler, InternetAddress.anyIPv4, port);
@@ -58,6 +59,27 @@ class ReceiverServer {
         'id': state.identity.id,
         'name': state.identity.name,
       });
+
+  /// El teléfono se presenta (y opcionalmente renombra la pantalla).
+  Future<Response> _pair(Request request) async {
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (_) {
+      return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
+    }
+    final phone = body['phoneName']?.toString().trim() ?? '';
+    if (phone.isEmpty) return _json({'ok': false, 'error': 'falta phoneName'}, 400);
+    await state.addPhone(phone);
+    final screenName = body['screenName']?.toString().trim();
+    if (screenName != null && screenName.isNotEmpty) await state.rename(screenName);
+    return _json({
+      'ok': true,
+      'id': state.identity.id,
+      'name': state.identity.name,
+      'phones': state.phones,
+    });
+  }
 
   Future<Response> _play(Request request) async {
     final Map<String, dynamic> body;
