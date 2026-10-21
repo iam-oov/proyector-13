@@ -53,6 +53,44 @@ void main() {
     expect(s.realizedTotal, 10);
   });
 
+  group('horario del mercado de EE. UU.', () {
+    // Martes 21 oct 2026: NY en horario de verano (UTC−4).
+    test('abierto a las 10:00 NY, cerrado a las 16:30 NY y en fin de semana', () {
+      expect(UsMarketHours.isOpen(DateTime.utc(2026, 10, 21, 14)), isTrue); // 10:00 NY
+      expect(UsMarketHours.isOpen(DateTime.utc(2026, 10, 21, 13, 29)), isFalse); // 9:29 NY
+      expect(UsMarketHours.isOpen(DateTime.utc(2026, 10, 21, 20, 30)), isFalse); // 16:30 NY
+      expect(UsMarketHours.isOpen(DateTime.utc(2026, 10, 24, 15)), isFalse); // sábado
+    });
+
+    test('cerrado: el siguiente refresh es 1 min después de la apertura', () {
+      // Martes 21:00 NY → miércoles 9:31 NY = 13:31 UTC.
+      final next = UsMarketHours.nextRefresh(DateTime.utc(2026, 10, 22, 1));
+      expect(next.toUtc(), DateTime.utc(2026, 10, 22, 13, 31));
+      // Viernes 17:00 NY → lunes 9:31 NY.
+      final weekend = UsMarketHours.nextRefresh(DateTime.utc(2026, 10, 23, 21));
+      expect(weekend.toUtc(), DateTime.utc(2026, 10, 26, 13, 31));
+    });
+
+    test('cambio de horario: en diciembre NY es UTC−5', () {
+      expect(UsMarketHours.isOpen(DateTime.utc(2026, 12, 1, 14, 31)), isTrue); // 9:31 NY
+      expect(UsMarketHours.isOpen(DateTime.utc(2026, 12, 1, 14, 29)), isFalse); // 9:29 NY
+      // El viernes 30 oct cierra con horario de verano; el lunes 2 nov abre ya en UTC−5.
+      expect(UsMarketHours.nextRefresh(DateTime.utc(2026, 10, 30, 21)).toUtc(), DateTime.utc(2026, 11, 2, 14, 31));
+    });
+
+    test('abierto: cada minuto, o cada 30 si Yahoo dice CLOSED (feriado)', () {
+      final now = DateTime.utc(2026, 10, 21, 15);
+      expect(UsMarketHours.nextRefresh(now), now.add(const Duration(minutes: 1)));
+      expect(UsMarketHours.nextRefresh(now, lastMarketState: 'CLOSED'), now.add(const Duration(minutes: 30)));
+    });
+
+    test('countdownText', () {
+      expect(countdownText(const Duration(seconds: 42)), '0:42');
+      expect(countdownText(const Duration(hours: 3, minutes: 5, seconds: 10)), '3:05:10');
+      expect(countdownText(const Duration(days: 2, hours: 4)), '2 d 4 h');
+    });
+  });
+
   test('cerrar un trade y JSON ida y vuelta', () {
     final closed = trades.first.close(exitPrice: 130, at: today);
     expect(closed.isOpen, isFalse);

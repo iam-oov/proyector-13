@@ -484,9 +484,7 @@ class _CountdownTextState extends State<CountdownText> {
 
   @override
   Widget build(BuildContext context) {
-    var left = widget.until.difference(DateTime.now()).inSeconds;
-    if (left < 0) left = 0;
-    return Text('${widget.prefix}${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}', style: widget.style);
+    return Text('${widget.prefix}${countdownText(widget.until.difference(DateTime.now()))}', style: widget.style);
   }
 }
 

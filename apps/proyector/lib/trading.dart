@@ -45,9 +45,10 @@ class TradingStore {
   }
 }
 
-/// Las estadísticas viven en el inicio: pide precios a Yahoo cada minuto
-/// mientras el inicio está en pantalla y hay posiciones abiertas; persiste
-/// lo que manda el teléfono.
+/// Las estadísticas viven en el inicio: pide precios a Yahoo mientras el
+/// inicio está en pantalla y hay posiciones abiertas — cada minuto con el
+/// mercado abierto; con el mercado cerrado espera a la siguiente apertura.
+/// Persiste lo que manda el teléfono.
 class TradingController {
   TradingController(this.state, this.store);
 
@@ -55,6 +56,7 @@ class TradingController {
   final TradingStore store;
   final _yahoo = YahooFinance();
   Timer? _timer;
+  bool _active = false;
 
   Future<void> init() async {
     final saved = await store.load();
@@ -65,17 +67,25 @@ class TradingController {
 
   void _onState() {
     final want = state.panel == ReceiverPanel.home && state.trades.any((t) => t.isOpen);
-    if (want && _timer == null) {
-      _timer = Timer.periodic(_every, (_) => refresh());
+    if (want == _active) return;
+    _active = want;
+    _timer?.cancel();
+    _timer = null;
+    if (!want) return;
+    // Al volver al inicio: si ya hay un siguiente refresh agendado en el
+    // futuro (p. ej. mercado cerrado), se respeta; si no, se pide ya.
+    final next = state.nextQuotesAt;
+    if (next != null && next.isAfter(DateTime.now()) && state.quotesAt != null) {
+      _schedule(next);
+    } else {
       unawaited(refresh());
-    } else if (!want && _timer != null) {
-      _timer!.cancel();
-      _timer = null;
-      state.nextQuotesAt = null;
     }
   }
 
-  static const _every = Duration(minutes: 1);
+  void _schedule(DateTime at) {
+    _timer?.cancel();
+    _timer = Timer(at.difference(DateTime.now()), () => refresh());
+  }
 
   /// Llamado por el servidor después de un POST /trading.
   Future<void> onChanged() async {
@@ -93,7 +103,11 @@ class TradingController {
     } else {
       state.setQuotes(quotes);
     }
-    // El countdown del tablero apunta al siguiente tick del timer.
-    state.setQuotesLoading(false, nextAt: _timer == null ? null : DateTime.now().add(_every));
+    final next = UsMarketHours.nextRefresh(
+      DateTime.now(),
+      lastMarketState: quotes.isEmpty ? null : quotes.values.first.marketState,
+    );
+    state.setQuotesLoading(false, nextAt: next);
+    if (_active) _schedule(next);
   }
 }

@@ -332,38 +332,54 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(_pushTrading());
   }
 
-  /// Precios de las posiciones abiertas (cada minuto mientras la página está abierta).
+  /// Precios de las posiciones abiertas mientras la página está abierta: cada
+  /// minuto con el mercado abierto; con el mercado cerrado, hasta la apertura.
   Future<void> refreshQuotes() async {
     final symbols = trades.where((t) => t.isOpen).map((t) => t.symbol).toSet();
     if (symbols.isEmpty || quotesLoading) return;
     quotesLoading = true;
     notifyListeners();
+    Map<String, Quote> q = {};
     try {
-      final q = await _yahoo.quotes(symbols);
+      q = await _yahoo.quotes(symbols);
       if (q.isNotEmpty) {
         quotes = q;
         quotesAt = DateTime.now();
       }
     } finally {
       quotesLoading = false;
-      if (_quotesTimer != null) nextQuotesAt = DateTime.now().add(_quotesEvery);
+      if (_polling) {
+        nextQuotesAt = UsMarketHours.nextRefresh(
+          DateTime.now(),
+          lastMarketState: q.isEmpty ? null : q.values.first.marketState,
+        );
+        _quotesTimer?.cancel();
+        _quotesTimer = Timer(nextQuotesAt!.difference(DateTime.now()), refreshQuotes);
+      }
       notifyListeners();
     }
   }
 
-  static const _quotesEvery = Duration(minutes: 1);
+  bool _polling = false;
 
   void startQuotePolling() {
+    _polling = true;
     _quotesTimer?.cancel();
-    _quotesTimer = Timer.periodic(_quotesEvery, (_) => refreshQuotes());
-    nextQuotesAt = DateTime.now().add(_quotesEvery);
-    unawaited(refreshQuotes());
+    // Si ya hay precios y el siguiente refresh es en el futuro (mercado
+    // cerrado), no se vuelve a pedir: solo se reagenda.
+    final next = nextQuotesAt;
+    if (quotesAt != null && next != null && next.isAfter(DateTime.now())) {
+      _quotesTimer = Timer(next.difference(DateTime.now()), refreshQuotes);
+      notifyListeners();
+    } else {
+      unawaited(refreshQuotes());
+    }
   }
 
   void stopQuotePolling() {
+    _polling = false;
     _quotesTimer?.cancel();
     _quotesTimer = null;
-    nextQuotesAt = null;
   }
 
   /// Manda la bitácora al proyector y lo pone en modo Trading (o lo quita).

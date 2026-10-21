@@ -238,6 +238,77 @@ class PortfolioStats {
 
 bool _sameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
 
+/// Horario de NYSE/Nasdaq (9:30–16:00 hora de Nueva York, lunes a viernes),
+/// con el cambio de horario de EE. UU. No conoce los feriados: para eso está
+/// el `marketState` que manda Yahoo.
+class UsMarketHours {
+  static const _open = Duration(hours: 9, minutes: 30);
+  static const _close = Duration(hours: 16);
+
+  /// Desfase de Nueva York respecto a UTC: −4 h en horario de verano, −5 h si no.
+  static Duration nyOffset(DateTime utc) {
+    final y = utc.year;
+    // Verano: del 2.º domingo de marzo 2:00 local (7:00 UTC) al 1.er domingo
+    // de noviembre 2:00 local (6:00 UTC).
+    final start = DateTime.utc(y, 3, _nthSunday(y, 3, 2), 7);
+    final end = DateTime.utc(y, 11, _nthSunday(y, 11, 1), 6);
+    return !utc.isBefore(start) && utc.isBefore(end) ? const Duration(hours: -4) : const Duration(hours: -5);
+  }
+
+  static int _nthSunday(int year, int month, int n) {
+    final first = DateTime.utc(year, month, 1);
+    final firstSunday = 1 + (7 - first.weekday % 7) % 7;
+    return firstSunday + 7 * (n - 1);
+  }
+
+  /// "Reloj de Nueva York" expresado como DateTime UTC (solo para leer campos).
+  static DateTime _ny(DateTime utc) => utc.add(nyOffset(utc));
+
+  static bool isOpen(DateTime now) {
+    final ny = _ny(now.toUtc());
+    if (ny.weekday == DateTime.saturday || ny.weekday == DateTime.sunday) return false;
+    final t = Duration(hours: ny.hour, minutes: ny.minute, seconds: ny.second);
+    return t >= _open && t < _close;
+  }
+
+  /// Próxima apertura (en hora local del dispositivo). Si está abierto, la de mañana.
+  static DateTime nextOpen(DateTime now) {
+    final utc = now.toUtc();
+    final ny = _ny(utc);
+    var day = DateTime.utc(ny.year, ny.month, ny.day);
+    final t = Duration(hours: ny.hour, minutes: ny.minute, seconds: ny.second);
+    if (t >= _open) day = day.add(const Duration(days: 1));
+    while (day.weekday == DateTime.saturday || day.weekday == DateTime.sunday) {
+      day = day.add(const Duration(days: 1));
+    }
+    final openNy = day.add(_open);
+    // openNy está en "hora de Nueva York"; se convierte a UTC con el desfase de ese día.
+    return openNy.subtract(nyOffset(openNy.subtract(const Duration(hours: 5)))).toLocal();
+  }
+
+  /// Cuándo volver a pedir precios a Yahoo:
+  /// - mercado abierto → en 1 minuto;
+  /// - abierto según horario pero Yahoo dice CLOSED (feriado) → en 30 minutos;
+  /// - cerrado → 1 minuto después de la próxima apertura.
+  static DateTime nextRefresh(DateTime now, {String? lastMarketState}) {
+    if (isOpen(now)) {
+      final holiday = lastMarketState != null && lastMarketState == 'CLOSED';
+      return now.add(holiday ? const Duration(minutes: 30) : const Duration(minutes: 1));
+    }
+    return nextOpen(now).add(const Duration(minutes: 1));
+  }
+}
+
+/// "0:42", "3:05:10" o "1 d 2 h" para el contador del próximo refresh.
+String countdownText(Duration left) {
+  if (left.isNegative) left = Duration.zero;
+  final s = left.inSeconds;
+  if (s >= 86400) return '${s ~/ 86400} d ${(s % 86400) ~/ 3600} h';
+  final h = s ~/ 3600, m = (s % 3600) ~/ 60, sec = s % 60;
+  final ss = sec.toString().padLeft(2, '0');
+  return h > 0 ? '$h:${m.toString().padLeft(2, '0')}:$ss' : '$m:$ss';
+}
+
 /// "+$1,234.56" / "−$12.00" / "—" si no hay dato. Con [sign] false no pone el +.
 String money(double? v, {bool sign = true}) {
   if (v == null) return '—';

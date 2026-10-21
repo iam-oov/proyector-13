@@ -6,6 +6,9 @@ import 'apps.dart';
 import 'state.dart';
 import 'trading_dashboard.dart';
 
+/// Título del inicio (el mismo en todas las pantallas de la casa).
+const householdTitle = 'Familia HG';
+
 /// Pantalla de inicio del proyector: tiles de apps + Vincular + Ajustes,
 /// navegables con el control; a la derecha, las estadísticas de trading.
 /// Abajo, el último envío.
@@ -60,7 +63,14 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(state.identity.name, style: text.headlineMedium),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(householdTitle, style: text.headlineMedium),
+                      // El nombre de esta pantalla (el del QR) queda como subtítulo.
+                      Text(state.identity.name, style: text.bodyMedium?.copyWith(color: Colors.white54)),
+                    ],
+                  ),
                   const Spacer(),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
