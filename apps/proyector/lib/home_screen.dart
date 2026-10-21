@@ -10,6 +10,20 @@ import 'trading_dashboard.dart';
 /// Título del inicio (el mismo en todas las pantallas de la casa).
 const householdTitle = 'Familia HG';
 
+/// Colores del inicio: fondo rosa pastel, apps en morado lila y accesos del
+/// sistema en fucsia.
+const homeBackground = Color(0xFFFFD6E7);
+const homeTileColor = Color(0xFF9B6BD6);
+const homeSystemTileColor = Color(0xFFA8005C);
+
+/// Tema claro del inicio: con fondo pastel el texto va oscuro.
+final homeTheme = ThemeData(
+  brightness: Brightness.light,
+  colorSchemeSeed: homeTileColor,
+  scaffoldBackgroundColor: homeBackground,
+  useMaterial3: true,
+);
+
 /// Pantalla de inicio del proyector: tiles de apps + Vincular + Ajustes,
 /// navegables con el control; a la derecha, las estadísticas de trading.
 /// Abajo, el último envío.
@@ -71,183 +85,212 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    final text = Theme.of(context).textTheme;
-    return Scaffold(
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 28),
-        child: ListenableBuilder(
-          listenable: state,
-          builder: (context, _) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(householdTitle, style: text.headlineMedium),
-                      // El nombre de esta pantalla (el del QR) queda como subtítulo.
-                      Text(
-                        state.identity.name,
-                        style: text.bodyMedium?.copyWith(color: Colors.white54),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const ClockText(),
-                      const ConnectivityRow(),
-                      Text(
-                        state.phones.isEmpty
-                            ? 'Nadie conectado'
-                            : 'Conectado: ${state.phones.join(', ')}',
-                        style: text.bodyMedium?.copyWith(color: Colors.white54),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, box) {
-                        // Columnas según cuántas apps haya, para llenar filas
-                        // completas a todo lo ancho (6 apps = 2 filas de 3).
-                        const gap = 12.0;
-                        final n = _apps.length;
-                        final cols = n <= 6 ? 3 : (n <= 8 ? 4 : 5);
-                        final w = ((box.maxWidth - gap * (cols - 1)) / cols)
-                            .floorToDouble();
-                        final sw = ((box.maxWidth - gap * 2) / 3)
-                            .floorToDouble();
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Wrap(
-                              spacing: gap,
-                              runSpacing: gap,
-                              children: [
-                                for (final (i, app) in _apps.indexed)
+    // Tamaños del tema de la app (homeTheme.textTheme solo trae colores) con
+    // los colores oscuros del inicio.
+    final text = Theme.of(context).textTheme.merge(homeTheme.textTheme);
+    // La tarjeta de trading conserva el tema oscuro de la app.
+    final appTheme = Theme.of(context);
+    return Theme(
+      data: homeTheme,
+      child: Scaffold(
+        body: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 28),
+          child: ListenableBuilder(
+            listenable: state,
+            builder: (context, _) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Título y hora a la misma altura y del mismo tamaño.
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          householdTitle,
+                          style: text.displaySmall?.copyWith(height: 1),
+                        ),
+                        // El nombre de esta pantalla (el del QR) queda como subtítulo.
+                        Text(
+                          state.identity.name,
+                          style: text.bodyMedium?.copyWith(
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const ClockText(),
+                        const ConnectivityRow(),
+                        Text(
+                          state.phones.isEmpty
+                              ? 'Nadie conectado'
+                              : 'Conectado: ${state.phones.join(', ')}',
+                          style: text.bodyMedium?.copyWith(
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, box) {
+                          // Columnas según cuántas apps haya, para llenar filas
+                          // completas a todo lo ancho (6 apps = 2 filas de 3).
+                          const gap = 12.0;
+                          final n = _apps.length;
+                          final cols = n <= 6 ? 3 : (n <= 8 ? 4 : 5);
+                          final w = ((box.maxWidth - gap * (cols - 1)) / cols)
+                              .floorToDouble();
+                          final sw = ((box.maxWidth - gap * 2) / 3)
+                              .floorToDouble();
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Wrap(
+                                spacing: gap,
+                                runSpacing: gap,
+                                children: [
+                                  for (final (i, app) in _apps.indexed)
+                                    HomeTile(
+                                      width: w,
+                                      label: app.label,
+                                      icon: app.icon == null
+                                          ? const Icon(Icons.apps, size: 34)
+                                          : Image.memory(
+                                              app.icon!,
+                                              width: 56,
+                                              height: 56,
+                                              filterQuality:
+                                                  FilterQuality.medium,
+                                            ),
+                                      focusNode: i == 0 ? _firstApp : null,
+                                      onTap: () => _open(
+                                        () => launchPackage(app.package),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              const SizedBox(height: gap),
+                              // Accesos del sistema: una fila compacta debajo de las apps.
+                              Row(
+                                children: [
                                   HomeTile(
-                                    width: w,
-                                    label: app.label,
-                                    icon: app.icon == null
-                                        ? const Icon(Icons.apps, size: 34)
-                                        : Image.memory(
-                                            app.icon!,
-                                            width: 56,
-                                            height: 56,
-                                            filterQuality: FilterQuality.medium,
-                                          ),
-                                    focusNode: i == 0 ? _firstApp : null,
+                                    width: sw,
+                                    compact: true,
+                                    label: 'Vincular teléfono',
+                                    icon: const Icon(Icons.qr_code_2, size: 24),
+                                    color: homeSystemTileColor,
+                                    autofocus: _apps.isEmpty,
                                     onTap: () =>
-                                        _open(() => launchPackage(app.package)),
+                                        state.showPanel(ReceiverPanel.qr),
                                   ),
-                              ],
-                            ),
-                            const SizedBox(height: gap),
-                            // Accesos del sistema: una fila compacta debajo de las apps.
-                            Row(
-                              children: [
-                                HomeTile(
-                                  width: sw,
-                                  compact: true,
-                                  label: 'Vincular teléfono',
-                                  icon: const Icon(Icons.qr_code_2, size: 24),
-                                  color: const Color(0xFF2D2640),
-                                  autofocus: _apps.isEmpty,
-                                  onTap: () =>
-                                      state.showPanel(ReceiverPanel.qr),
-                                ),
-                                const SizedBox(width: gap),
-                                // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
-                                HomeTile(
-                                  width: sw,
-                                  compact: true,
-                                  label: 'Ajustes',
-                                  icon: const Icon(Icons.settings, size: 24),
-                                  color: const Color(0xFF2B2B2B),
-                                  onTap: () => _open(
-                                    () => launchComponent(
-                                      'com.jixin.settings5',
-                                      'com.jixin.settings5.SettingsActivity',
+                                  const SizedBox(width: gap),
+                                  // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
+                                  HomeTile(
+                                    width: sw,
+                                    compact: true,
+                                    label: 'Ajustes',
+                                    icon: const Icon(Icons.settings, size: 24),
+                                    color: homeSystemTileColor,
+                                    onTap: () => _open(
+                                      () => launchComponent(
+                                        'com.jixin.settings5',
+                                        'com.jixin.settings5.SettingsActivity',
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: gap),
-                                // Los de Android TV: apps, cuentas, mandos, redes.
-                                HomeTile(
-                                  width: sw,
-                                  compact: true,
-                                  label: 'Ajustes Android',
-                                  icon: const Icon(Icons.tune, size: 24),
-                                  color: const Color(0xFF2B2B2B),
-                                  onTap: () => _open(
-                                    () => launchComponent(
-                                      'com.android.tv.settings',
-                                      'com.android.tv.settings.MainSettings',
+                                  const SizedBox(width: gap),
+                                  // Los de Android TV: apps, cuentas, mandos, redes.
+                                  HomeTile(
+                                    width: sw,
+                                    compact: true,
+                                    label: 'Ajustes Android',
+                                    icon: const Icon(Icons.tune, size: 24),
+                                    color: homeSystemTileColor,
+                                    onTap: () => _open(
+                                      () => launchComponent(
+                                        'com.android.tv.settings',
+                                        'com.android.tv.settings.MainSettings',
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        );
-                      },
+                                ],
+                              ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                    // Estadísticas de trading (solo si hay movimientos registrados).
+                    if (state.trades.isNotEmpty) ...[
+                      const SizedBox(width: 20),
+                      SizedBox(
+                        width: 288,
+                        child: Theme(
+                          data: appTheme,
+                          child: TradingStats(state: state),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Text(
+                      _error!,
+                      style: text.bodyMedium?.copyWith(
+                        color: Colors.red.shade800,
+                      ),
                     ),
                   ),
-                  // Estadísticas de trading (solo si hay movimientos registrados).
-                  if (state.trades.isNotEmpty) ...[
-                    const SizedBox(width: 20),
-                    SizedBox(width: 288, child: TradingStats(state: state)),
-                  ],
-                ],
-              ),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    _error!,
-                    style: text.bodyMedium?.copyWith(color: Colors.redAccent),
+                const Spacer(),
+                if (state.queueInfo != null) ...[
+                  Row(
+                    children: [
+                      const Icon(
+                        Icons.shuffle,
+                        size: 20,
+                        color: Colors.black87,
+                      ),
+                      const SizedBox(width: 8),
+                      Text('Cola: ${state.queueInfo}', style: text.titleSmall),
+                    ],
                   ),
+                  const SizedBox(height: 12),
+                ],
+                if (state.spotifyLinked && state.nowPlaying != null) ...[
+                  NowPlayingBar(state: state),
+                  const SizedBox(height: 16),
+                ],
+                // Último envío en una sola línea.
+                Text(
+                  state.events.isEmpty
+                      ? 'Último envío: todavía nada. Manda un video desde el teléfono.'
+                      : 'Último envío · ${_hhmm(state.events.first.at)}  ${state.events.first.message}',
+                  style: text.bodyMedium?.copyWith(
+                    color: state.events.isEmpty
+                        ? Colors.black87
+                        : (state.events.first.error
+                              ? Colors.red.shade800
+                              : Colors.black87),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              const Spacer(),
-              if (state.queueInfo != null) ...[
-                Row(
-                  children: [
-                    const Icon(Icons.shuffle, size: 20, color: Colors.white70),
-                    const SizedBox(width: 8),
-                    Text('Cola: ${state.queueInfo}', style: text.titleSmall),
-                  ],
-                ),
-                const SizedBox(height: 12),
               ],
-              if (state.spotifyLinked && state.nowPlaying != null) ...[
-                NowPlayingBar(state: state),
-                const SizedBox(height: 16),
-              ],
-              // Último envío en una sola línea.
-              Text(
-                state.events.isEmpty
-                    ? 'Último envío: todavía nada. Manda un video desde el teléfono.'
-                    : 'Último envío · ${_hhmm(state.events.first.at)}  ${state.events.first.message}',
-                style: text.bodyMedium?.copyWith(
-                  color: state.events.isEmpty
-                      ? Colors.white38
-                      : (state.events.first.error
-                            ? Colors.redAccent
-                            : Colors.white70),
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+            ),
           ),
         ),
       ),
@@ -289,7 +332,7 @@ class NowPlayingBar extends StatelessWidget {
               Text(
                 '${t.isPlaying ? 'Sonando' : 'En pausa'} en Spotify · '
                 '${state.spotifyFollowing ? 'el video sigue a la música' : 'seguimiento apagado'}',
-                style: text.bodySmall?.copyWith(color: Colors.white54),
+                style: text.bodySmall?.copyWith(color: Colors.black87),
               ),
               Text(
                 '${t.title} — ${t.artist}',
@@ -353,7 +396,7 @@ class _ConnectivityRowState extends State<ConnectivityRow> {
   @override
   Widget build(BuildContext context) {
     final style = Theme.of(context).textTheme.bodyMedium
-        ?.copyWith(color: Colors.white70);
+        ?.copyWith(color: Colors.black87);
     final wifi = _wifi;
     final level = (wifi?['level'] as num?)?.toInt() ?? 0;
     return Padding(
@@ -372,7 +415,7 @@ class _ConnectivityRowState extends State<ConnectivityRow> {
                     Icons.wifi,
                   ][level],
             size: 18,
-            color: wifi == null ? Colors.redAccent : Colors.white70,
+            color: wifi == null ? Colors.red.shade800 : Colors.black87,
           ),
           const SizedBox(width: 6),
           Text(
@@ -388,7 +431,7 @@ class _ConnectivityRowState extends State<ConnectivityRow> {
                   ? Icons.headphones
                   : Icons.bluetooth_connected,
               size: 18,
-              color: Colors.lightBlueAccent,
+              color: Colors.blue.shade800,
             ),
             const SizedBox(width: 4),
             Text('${d['name']}', style: style),
@@ -472,7 +515,7 @@ class _ClockTextState extends State<ClockText> {
         ),
         Text(
           '${days[now.weekday - 1]} ${now.day} de ${months[now.month - 1]}',
-          style: text.bodyMedium?.copyWith(color: Colors.white54),
+          style: text.bodyMedium?.copyWith(color: Colors.black87),
         ),
       ],
     );
@@ -513,18 +556,25 @@ class _HomeTileState extends State<HomeTile> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final label = Text(
       widget.label,
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
-      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+      style: const TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: Colors.white,
+      ),
+    );
+    final icon = IconTheme(
+      data: const IconThemeData(color: Colors.white),
+      child: widget.icon,
     );
     return AnimatedScale(
       scale: _focused ? 1.06 : 1,
       duration: const Duration(milliseconds: 120),
       child: Material(
-        color: widget.color ?? scheme.surfaceContainerHigh,
+        color: widget.color ?? homeTileColor,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           autofocus: widget.autofocus,
@@ -542,14 +592,15 @@ class _HomeTileState extends State<HomeTile> {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: _focused ? Colors.white : Colors.transparent,
+                // Oscuro para que el foco resalte sobre el fondo pastel.
+                color: _focused ? const Color(0xFF4A0026) : Colors.transparent,
                 width: 3,
               ),
             ),
             child: widget.compact
                 ? Row(
                     children: [
-                      widget.icon,
+                      icon,
                       const SizedBox(width: 10),
                       Expanded(child: label),
                     ],
@@ -557,7 +608,7 @@ class _HomeTileState extends State<HomeTile> {
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [widget.icon, label],
+                    children: [icon, label],
                   ),
           ),
         ),
