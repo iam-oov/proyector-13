@@ -17,6 +17,8 @@ object Channels {
         val channel = MethodChannel(engine.dartExecutor.binaryMessenger, "proyector/launch")
         channel.setMethodCallHandler { call, result ->
                 when (call.method) {
+                    // Wi-Fi y Bluetooth para el inicio.
+                    "connectivity" -> result.success(Connectivity.snapshot(context))
                     // Empieza a avisar a Dart ("mediaChanged") de lo que reproduce YouTube.
                     "startMediaWatch" -> result.success(
                         MediaWatcher.start(context) { info -> channel.invokeMethod("mediaChanged", info) },

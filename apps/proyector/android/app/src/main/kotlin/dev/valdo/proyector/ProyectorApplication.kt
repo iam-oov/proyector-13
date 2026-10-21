@@ -14,6 +14,7 @@ class ProyectorApplication : Application() {
         val engine = FlutterEngine(this)
         engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
         Channels.install(applicationContext, engine)
+        Connectivity.init(applicationContext)
         FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
     }
 

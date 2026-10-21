@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'apps.dart';
 import 'state.dart';
@@ -79,6 +80,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       const ClockText(),
+                      const ConnectivityRow(),
                       Text(
                         state.phones.isEmpty
                             ? 'Nadie conectado'
@@ -249,6 +251,108 @@ class NowPlayingBar extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Wi-Fi (nombre + barras de intensidad) y Bluetooth conectados; cada 10 s.
+class ConnectivityRow extends StatefulWidget {
+  const ConnectivityRow({super.key});
+
+  @override
+  State<ConnectivityRow> createState() => _ConnectivityRowState();
+}
+
+class _ConnectivityRowState extends State<ConnectivityRow> {
+  static const _channel = MethodChannel('proyector/launch');
+  Map<String, Object?>? _wifi;
+  List<Map<String, Object?>> _bt = [];
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    _timer = Timer.periodic(const Duration(seconds: 10), (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final r = (await _channel.invokeMethod<Map<Object?, Object?>>(
+        'connectivity',
+      ))?.cast<String, Object?>();
+      if (!mounted || r == null) return;
+      setState(() {
+        _wifi = (r['wifi'] as Map?)?.cast<String, Object?>();
+        _bt = [
+          for (final d in (r['bluetooth'] as List?) ?? const [])
+            (d as Map).cast<String, Object?>(),
+        ];
+      });
+    } catch (_) {
+      // Sin datos: se deja lo último.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.bodyMedium
+        ?.copyWith(color: Colors.white70);
+    final wifi = _wifi;
+    final level = (wifi?['level'] as num?)?.toInt() ?? 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            wifi == null
+                ? Icons.wifi_off
+                : const [
+                    Icons.wifi_1_bar,
+                    Icons.wifi_1_bar,
+                    Icons.wifi_2_bar,
+                    Icons.wifi,
+                    Icons.wifi,
+                  ][level],
+            size: 18,
+            color: wifi == null ? Colors.redAccent : Colors.white70,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            wifi == null
+                ? 'Sin Wi-Fi'
+                : '${wifi['ssid'] ?? 'Wi-Fi'} · ${_signal(level)} (${wifi['rssi']} dBm)',
+            style: style,
+          ),
+          for (final d in _bt) ...[
+            const SizedBox(width: 14),
+            Icon(
+              d['kind'] == 'audio'
+                  ? Icons.headphones
+                  : Icons.bluetooth_connected,
+              size: 18,
+              color: Colors.lightBlueAccent,
+            ),
+            const SizedBox(width: 4),
+            Text('${d['name']}', style: style),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _signal(int level) => const [
+    'muy débil',
+    'débil',
+    'regular',
+    'buena',
+    'excelente',
+  ][level.clamp(0, 4)];
 }
 
 /// Hora y fecha, actualizadas cada 15 s.

@@ -10,6 +10,12 @@
          está al frente). Con este permiso concedido por adb, el receptor queda exento. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Inicio: nombre e intensidad del Wi-Fi y Bluetooth conectados
+         (se conceden por adb: pm grant ... ACCESS_FINE_LOCATION / BLUETOOTH_CONNECT). -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Launcher: listar y abrir las demas apps de TV. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <application
