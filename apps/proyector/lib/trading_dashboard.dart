@@ -17,7 +17,7 @@ class TradingDashboard extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     return PopScope(
       canPop: false,
-      onPopInvokedWithResult: (_, _) => state.showPanel(ReceiverPanel.qr),
+      onPopInvokedWithResult: (_, _) => state.showPanel(ReceiverPanel.home),
       child: Scaffold(
         body: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 56, vertical: 40),

@@ -3,7 +3,7 @@ import 'package:shared/shared.dart';
 
 import 'identity.dart';
 
-enum ReceiverPanel { qr, trading }
+enum ReceiverPanel { home, qr, trading }
 
 /// Lo que la pantalla del proyector muestra: el QR, dónde escucha, qué ha
 /// recibido y, si el teléfono lo pide, el tablero de trading.
@@ -15,7 +15,7 @@ class ReceiverState extends ChangeNotifier {
   int port = 8080;
   final List<ReceiverEvent> events = [];
 
-  ReceiverPanel panel = ReceiverPanel.qr;
+  ReceiverPanel panel = ReceiverPanel.home;
   List<Trade> trades = [];
   Map<String, Quote> quotes = {};
   DateTime? quotesAt;

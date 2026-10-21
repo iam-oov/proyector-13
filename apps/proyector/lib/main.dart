@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'home_screen.dart';
 import 'identity.dart';
 import 'server.dart';
 import 'state.dart';
@@ -46,15 +47,18 @@ class ProyectorApp extends StatelessWidget {
       ),
       home: ListenableBuilder(
         listenable: state,
-        builder: (context, _) => state.panel == ReceiverPanel.trading
-            ? TradingDashboard(state: state)
-            : StatusScreen(state: state),
+        builder: (context, _) => switch (state.panel) {
+          ReceiverPanel.home => HomeScreen(state: state),
+          ReceiverPanel.qr => StatusScreen(state: state),
+          ReceiverPanel.trading => TradingDashboard(state: state),
+        },
       ),
     );
   }
 }
 
 /// Pantalla para la TV: el QR para vincularse, nombre, IP y los últimos envíos.
+/// Atrás en el control vuelve al inicio.
 class StatusScreen extends StatelessWidget {
   const StatusScreen({super.key, required this.state});
 
@@ -63,7 +67,10 @@ class StatusScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (_, _) => state.showPanel(ReceiverPanel.home),
+      child: Scaffold(
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 48),
         child: ListenableBuilder(
@@ -119,6 +126,7 @@ class StatusScreen extends StatelessWidget {
             },
           ),
         ),
+      ),
       ),
     );
   }

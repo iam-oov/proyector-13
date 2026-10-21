@@ -103,7 +103,7 @@ class ReceiverServer {
     }
     if (body['show'] is bool) {
       final show = body['show'] as bool;
-      state.showPanel(show ? ReceiverPanel.trading : ReceiverPanel.qr);
+      state.showPanel(show ? ReceiverPanel.trading : ReceiverPanel.home);
       // Si YouTube está al frente, el tablero no se vería: nos traemos al frente.
       if (show) await bringToFront();
     }
