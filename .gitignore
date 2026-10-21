@@ -1,0 +1,25 @@
+# Secrets
+.env
+tools/.spotify-token.json
+*.keystore
+*.jks
+
+# Flutter / Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+**/.idea/
+**/*.iml
+**/pubspec.lock
+!packages/**/pubspec.lock
+
+# Android
+**/android/.gradle/
+**/android/local.properties
+**/android/key.properties
+**/android/app/.cxx/
+
+# macOS
+.DS_Store

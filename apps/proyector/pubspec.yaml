@@ -1,0 +1,23 @@
+name: proyector
+description: "A new Flutter project."
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  qr_flutter: ^4.1.0
+  shared:
+    path: ../../packages/shared
+  shelf: ^1.4.3
+  shelf_router: ^1.1.5
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
