@@ -125,7 +125,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       } on SpotifyNotLoggedIn {
         await _dropSession();
       } catch (e) {
-        error = '$e';
+        error = _msg(e);
       }
     }
     notifyListeners();
@@ -271,7 +271,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
         final r = await ProjectorClient(screens[i]).pair(phoneName ?? 'Teléfono', screenName: n);
         finalName = r.name;
       } catch (e) {
-        error = '$e';
+        error = _msg(e);
       }
     }
     await _updateScreen(screens[i].copyWith(name: finalName));
@@ -321,7 +321,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     } on SpotifyNotLoggedIn {
       await _dropSession();
     } catch (e) {
-      error = '$e';
+      error = _msg(e);
     } finally {
       playlistsLoading = false;
       notifyListeners();
@@ -366,7 +366,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     try {
       searchResults = await youtube.search(q);
     } catch (e) {
-      error = '$e';
+      error = _msg(e);
     } finally {
       searching = false;
       notifyListeners();
@@ -512,7 +512,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _sendTrack(Track t) async {
     status = 'Buscando el video de "$t"…';
     notifyListeners();
-    candidates = rankVideos(await youtube.search(t.searchQuery), t);
+    candidates = rankVideos(await youtube.search(t.searchQuery, fallbackQuery: t.plainQuery), t);
     if (candidates.isEmpty) throw StateError('YouTube no encontró nada para "$t"');
     await _play(candidates.first.video);
   }
@@ -533,7 +533,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     try {
       await action();
     } catch (e) {
-      error = '$e';
+      error = _msg(e);
     } finally {
       busy = false;
       notifyListeners();
@@ -549,3 +549,6 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     super.dispose();
   }
 }
+
+/// Texto de error para mostrar: sin el prefijo "Bad state: " de StateError.
+String _msg(Object e) => '$e'.replaceFirst('Bad state: ', '');

@@ -76,7 +76,7 @@ class QueueController {
         _index++;
         final t = _tracks[_index];
         try {
-          final ranked = rankVideos(await searchYouTubeWeb(t.searchQuery), t);
+          final ranked = rankVideos(await searchTrackVideos(t), t);
           if (ranked.isEmpty) continue;
           final v = ranked.first.video;
           _expected = _norm(v.title);

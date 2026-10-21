@@ -42,6 +42,15 @@ Future<List<VideoCandidate>> searchYouTubeWeb(String query, {int max = 5, http.C
   return out;
 }
 
+/// Videos para una canción. Primero "artista título official video"; si YouTube
+/// no da resultados (p. ej. pide "Confirma tu edad" por una palabra sensible),
+/// reintenta solo con "artista título".
+Future<List<VideoCandidate>> searchTrackVideos(Track t, {http.Client? client}) async {
+  final first = await searchYouTubeWeb(t.searchQuery, client: client);
+  if (first.isNotEmpty) return first;
+  return searchYouTubeWeb(t.plainQuery, client: client);
+}
+
 String _runs(Object? o) {
   final runs = (o as Map?)?['runs'] as List?;
   return runs == null ? '' : runs.map((r) => r['text'] ?? '').join();

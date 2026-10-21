@@ -20,19 +20,22 @@ class YouTubeApi {
   final FlutterSecureStorage _storage;
   Map<String, List<VideoCandidate>>? _cache;
 
-  Future<List<VideoCandidate>> search(String query) async {
+  /// [fallbackQuery]: segundo intento en la web antes de gastar cuota de la
+  /// API (algunas búsquedas con palabras sensibles piden "Confirma tu edad").
+  Future<List<VideoCandidate>> search(String query, {String? fallbackQuery}) async {
     final key = query.trim().toLowerCase();
     final cache = await _loadCache();
     final hit = cache[key];
     if (hit != null && hit.isNotEmpty) return hit;
 
-    List<VideoCandidate> results;
+    List<VideoCandidate> results = [];
     try {
       results = await _searchWeb(query);
-      if (results.isEmpty) results = await _searchApi(query);
+      if (results.isEmpty && fallbackQuery != null) results = await _searchWeb(fallbackQuery);
     } catch (_) {
-      results = await _searchApi(query);
+      results = [];
     }
+    if (results.isEmpty) results = await _searchApi(query);
     if (results.isNotEmpty) await _remember(key, results);
     return results;
   }

@@ -38,6 +38,10 @@ class Track {
   /// Lo que se busca en YouTube. Solo el primer artista: con varios la búsqueda empeora.
   String get searchQuery => '${artists.first} $title official video';
 
+  /// Sin "official video": algunas búsquedas con palabras sensibles solo
+  /// devuelven resultados así.
+  String get plainQuery => '${artists.first} $title';
+
   @override
   String toString() => '$artist – $title';
 }

@@ -115,7 +115,7 @@ class SpotifyFollower {
     try {
       var video = _cache[key];
       if (video == null) {
-        final ranked = rankVideos(await searchYouTubeWeb(t.searchQuery), t);
+        final ranked = rankVideos(await searchTrackVideos(t), t);
         if (ranked.isEmpty) return;
         video = ranked.first.video;
         _cache[key] = video;
