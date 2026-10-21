@@ -52,6 +52,11 @@ Future<void> bringToFront() async {
   }
 }
 
+/// Play/pausa del video de YouTube. False si YouTube no tiene sesión de medios.
+Future<bool> mediaControl(String action) async =>
+    await _launch.invokeMethod<bool>('mediaControl', {'action': action}) ??
+    false;
+
 /// Abre el video en la app de YouTube del proyector (intent VIEW).
 Future<void> openVideo(Uri uri) async {
   try {

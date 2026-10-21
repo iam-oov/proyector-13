@@ -26,12 +26,21 @@ class QueueController {
   bool _advancing = false;
   bool watching = false;
 
+  /// Lo último que reportó la sesión de medios de YouTube (para el teléfono).
+  String? mediaTitle;
+  bool mediaPlaying = false;
+
   bool get active => _index >= 0 && _index < _tracks.length;
 
   Future<void> init() async {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'mediaChanged') {
-        _onMedia((call.arguments as Map).cast<String, Object?>());
+        final info = (call.arguments as Map).cast<String, Object?>();
+        mediaTitle = info['title'] as String?;
+        // 3 = PLAYING, 6 = BUFFERING.
+        final s = (info['state'] as num?)?.toInt();
+        mediaPlaying = s == 3 || s == 6;
+        _onMedia(info);
       }
     });
     try {

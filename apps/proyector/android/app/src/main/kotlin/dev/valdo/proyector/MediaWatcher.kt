@@ -44,6 +44,17 @@ object MediaWatcher {
         }
     }
 
+    /** Play/pausa del video de YouTube (botones del telefono). False si no hay sesion. */
+    fun control(action: String): Boolean {
+        val controls = controller?.transportControls ?: return false
+        when (action) {
+            "play" -> controls.play()
+            "pause" -> controls.pause()
+            else -> return false
+        }
+        return true
+    }
+
     private fun attach(sessions: List<MediaController>) {
         val yt = sessions.firstOrNull { it.packageName == YOUTUBE }
         if (yt?.sessionToken == controller?.sessionToken) return

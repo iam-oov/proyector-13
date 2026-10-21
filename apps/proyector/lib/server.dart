@@ -49,6 +49,7 @@ class ReceiverServer {
       ..post('/mask', _auth(_mask))
       ..post('/spotify', _auth(_spotify))
       ..post('/queue', _auth(_queue))
+      ..post('/media', _auth(_media))
       ..get('/volume', _auth(_getVolume))
       ..post('/volume', _auth(_setVolume));
     final handler = const Pipeline()
@@ -95,7 +96,31 @@ class ReceiverServer {
       'linked': state.spotifyLinked,
       'following': state.spotifyFollowing,
     },
+    // Para que el teléfono muestre los controles de la cola (saltar/detener).
+    'queue': {'active': queue?.active ?? false, 'info': state.queueInfo},
+    'media': {
+      'title': queue?.mediaTitle,
+      'playing': queue?.mediaPlaying ?? false,
+    },
   });
+
+  /// Video de YouTube: `{"action": "play"|"pause"|"stop"}`. `stop` también
+  /// corta la cola.
+  Future<Response> _media(Request request) async {
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (_) {
+      return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
+    }
+    final action = body['action']?.toString();
+    if (action != 'play' && action != 'pause' && action != 'stop') {
+      return _json({'ok': false, 'error': 'action: play, pause o stop'}, 400);
+    }
+    if (action == 'stop') queue?.stop();
+    final ok = await mediaControl(action == 'play' ? 'play' : 'pause');
+    return _json({'ok': true, 'media': ok});
+  }
 
   /// Spotify del proyector:
   /// - `{"link": {"clientId": "...", "token": {access_token, refresh_token, expires_at, …}}}`
