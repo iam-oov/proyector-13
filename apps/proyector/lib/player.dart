@@ -13,9 +13,13 @@ const _launch = MethodChannel('proyector/launch');
 
 /// Convierte lo que manda el teléfono en una URL que la app de YouTube del
 /// proyector entiende. Solo acepta IDs de video o URLs de YouTube.
-Uri? youtubeUri({String? videoId, String? url}) {
+Uri? youtubeUri({String? videoId, String? url, int? start}) {
   if (videoId != null && _videoId.hasMatch(videoId)) {
-    return Uri.https('www.youtube.com', '/watch', {'v': videoId});
+    // t=segundos: YouTube del proyector arranca ahí ("desde el minuto 15").
+    return Uri.https('www.youtube.com', '/watch', {
+      'v': videoId,
+      if (start != null && start > 0) 't': '$start',
+    });
   }
   if (url != null) {
     final uri = Uri.tryParse(url);
@@ -56,6 +60,11 @@ Future<void> bringToFront() async {
 Future<bool> mediaControl(String action) async =>
     await _launch.invokeMethod<bool>('mediaControl', {'action': action}) ??
     false;
+
+/// Salta a [toMs] o se mueve [byMs]; devuelve la posición nueva (ms) o null si
+/// YouTube no tiene sesión de medios.
+Future<int?> mediaSeek({int? toMs, int? byMs}) async =>
+    await _launch.invokeMethod<int>('mediaSeek', {'to': ?toMs, 'by': ?byMs});
 
 /// Abre el video en la app de YouTube del proyector (intent VIEW).
 Future<void> openVideo(Uri uri) async {

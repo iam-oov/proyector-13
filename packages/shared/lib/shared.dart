@@ -76,12 +76,21 @@ class VideoCandidate {
     required this.title,
     required this.channel,
     this.thumbnailUrl,
+    this.duration,
+    this.published,
+    this.views,
   });
 
   final String id;
   final String title;
   final String channel;
   final String? thumbnailUrl;
+
+  /// Lo que muestra YouTube ("1:02:33", "hace 3 días", "2.1 M de vistas"); solo
+  /// los trae la búsqueda web. Sirven para elegir (mezcla larga, lo más reciente).
+  final String? duration;
+  final String? published;
+  final String? views;
 
   Uri get url => Uri.https('www.youtube.com', '/watch', {'v': id});
 }

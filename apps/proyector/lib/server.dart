@@ -104,7 +104,8 @@ class ReceiverServer {
     },
   });
 
-  /// Video de YouTube: `{"action": "play"|"pause"|"stop"}`. `stop` también
+  /// Video de YouTube: `{"action": "play"|"pause"|"stop"}` o
+  /// `{"action": "seek", "to"|"by": segundos}`. `stop` también
   /// corta la cola.
   Future<Response> _media(Request request) async {
     final Map<String, dynamic> body;
@@ -114,8 +115,27 @@ class ReceiverServer {
       return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
     }
     final action = body['action']?.toString();
+    if (action == 'seek') {
+      // {"action": "seek", "to": segundos} o {"by": ±segundos}.
+      final to = (body['to'] as num?)?.toInt();
+      final by = (body['by'] as num?)?.toInt();
+      if (to == null && by == null) {
+        return _json({'ok': false, 'error': 'seek necesita to o by'}, 400);
+      }
+      final pos = await mediaSeek(
+        toMs: to == null ? null : to * 1000,
+        byMs: by == null ? null : by * 1000,
+      );
+      if (pos == null) {
+        return _json({'ok': false, 'error': 'no hay video sonando'}, 409);
+      }
+      return _json({'ok': true, 'position': pos ~/ 1000});
+    }
     if (action != 'play' && action != 'pause' && action != 'stop') {
-      return _json({'ok': false, 'error': 'action: play, pause o stop'}, 400);
+      return _json({
+        'ok': false,
+        'error': 'action: play, pause, stop o seek',
+      }, 400);
     }
     if (action == 'stop') queue?.stop();
     final ok = await mediaControl(action == 'play' ? 'play' : 'pause');
@@ -332,6 +352,7 @@ class ReceiverServer {
     final uri = youtubeUri(
       videoId: body['videoId']?.toString(),
       url: body['url']?.toString(),
+      start: (body['start'] as num?)?.toInt(),
     );
     if (uri == null) {
       return _json({

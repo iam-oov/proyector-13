@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
+import 'assistant.dart';
 import 'config.dart';
 import 'projector.dart';
 import 'screens.dart';
@@ -53,6 +54,10 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   // Pestaña Buscar: para quien no tiene Spotify.
   List<VideoCandidate> searchResults = [];
   bool searching = false;
+
+  /// Los resultados vienen del asistente: el primero ya se mandó y el resto son
+  /// las otras opciones ("¿No es el video correcto?").
+  bool searchFromAssistant = false;
 
   // Trading: bitácora manual + precios de Yahoo mientras la página está abierta.
   final _tradeStore = TradeStore();
@@ -612,6 +617,116 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
         status = 'Detenido';
       });
 
+  // --- Asistente de voz ----------------------------------------------------------
+
+  final _assistant = Assistant();
+
+  /// Paso en curso ("Entendiendo…", "Buscando…", "Eligiendo…"), o null si no hay.
+  String? assistantStep;
+
+  /// Lo que contestó el asistente la última vez ("Pongo música para la playa").
+  String? assistantReply;
+
+  /// Lo que se dijo la última vez (para mostrarlo arriba de la respuesta).
+  String? assistantHeard;
+
+  /// "Quiero poner música para la playa" → Claude entiende, busca en YouTube,
+  /// elige el video adecuado y lo manda a la pantalla elegida. También controla
+  /// (pausa, siguiente, volumen) y cambia de pantalla.
+  Future<void> runAssistant(String said) async {
+    final text = said.trim();
+    if (text.isEmpty || assistantStep != null) return;
+    assistantHeard = text;
+    assistantReply = null;
+    error = null;
+    assistantStep = 'Entendiendo…';
+    notifyListeners();
+    try {
+      final intent = await _assistant.understand(text, _assistantContext());
+      switch (intent.action) {
+        case 'play':
+          if (selectedScreen == null) throw StateError('Primero elige una pantalla');
+          assistantStep = 'Buscando en YouTube…';
+          notifyListeners();
+          final videos = await searchYouTubeWeb(intent.searchQuery, max: 8);
+          if (videos.isEmpty) throw StateError('YouTube no encontró nada para "${intent.searchQuery}"');
+          assistantStep = 'Eligiendo el video…';
+          notifyListeners();
+          final pick = await _assistant.pick(text, intent, videos);
+          searchResults = [videos[pick.index], for (final (i, v) in videos.indexed) if (i != pick.index) v];
+          searchFromAssistant = true;
+          assistantStep = 'Enviando…';
+          notifyListeners();
+          candidates = [];
+          await _play(videos[pick.index], start: intent.startSeconds > 0 ? intent.startSeconds : null);
+          assistantReply = pick.reply.isEmpty ? intent.reply : pick.reply;
+        case 'control':
+          await _assistantControl(intent);
+          assistantReply = intent.reply;
+        case 'switch_screen':
+          final q = intent.screen.toLowerCase();
+          final match = screens.where((s) => s.name.toLowerCase().contains(q) || q.contains(s.name.toLowerCase())).firstOrNull;
+          if (match == null || q.isEmpty) throw StateError('No encontré la pantalla "${intent.screen}"');
+          await selectScreen(match.id);
+          assistantReply = intent.reply.isEmpty ? 'Ahora en ${match.name}' : intent.reply;
+        default:
+          assistantReply = intent.reply.isEmpty ? 'No entendí. Prueba "pon música para la playa".' : intent.reply;
+      }
+    } catch (e) {
+      error = _msg(e);
+    } finally {
+      assistantStep = null;
+      notifyListeners();
+    }
+  }
+
+  String _assistantContext() {
+    final list = [
+      for (final s in screens)
+        '- ${s.name} (${s.isTv ? 'TV' : 'proyector'}'
+            '${s.id == selectedScreenId ? ', elegida' : ''}'
+            '${isScreenOnline(s.id) == false ? ', no responde' : ''})',
+    ].join('\n');
+    final t = track;
+    final playing = screenMediaTitle != null ? 'En la pantalla elegida suena: $screenMediaTitle' : 'En la pantalla elegida no suena nada';
+    return 'Pantallas:\n${list.isEmpty ? '(ninguna)' : list}\n$playing'
+        '${t == null ? '' : '\nEn Spotify: ${t.title} — ${t.artist}'}';
+  }
+
+  Future<void> _assistantControl(AssistantIntent i) async {
+    final s = selectedScreen;
+    if (s == null) throw StateError('Primero elige una pantalla');
+    // _run apaga busy y guarda el error; aquí solo se necesita la acción.
+    switch (i.control) {
+      case 'pause':
+        if (isPlaying) await togglePlay();
+      case 'resume':
+        if (!isPlaying) await togglePlay();
+      case 'next':
+        await skip();
+      case 'stop':
+        await stopAll();
+      case 'volume_up':
+        await changeVolume(delta: 2);
+      case 'volume_down':
+        await changeVolume(delta: -2);
+      case 'volume_set':
+        final v = volume;
+        await changeVolume(level: v == null ? i.volume : (i.volume * v.max / 100).round());
+      case 'seek_forward':
+        await seekVideo(by: i.seconds);
+      case 'seek_back':
+        await seekVideo(by: -i.seconds);
+      case 'seek_to':
+        await seekVideo(to: i.seconds);
+      case 'mute':
+        await changeVolume(mute: true);
+      case 'unmute':
+        await changeVolume(mute: false);
+    }
+    if (error != null) throw StateError(error!);
+  }
+
   // --- Buscar ------------------------------------------------------------------
 
   /// Búsqueda libre en YouTube (categoría Música), en el orden que da YouTube.
@@ -619,6 +734,8 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     final q = query.trim();
     if (q.isEmpty || searching) return;
     searching = true;
+    searchFromAssistant = false;
+    assistantHeard = assistantReply = null;
     error = null;
     notifyListeners();
     try {
@@ -796,15 +913,22 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     _sentKey = '${t.artist}|${t.title}';
   }
 
-  Future<void> _play(VideoCandidate video) async {
+  /// Salta dentro del video que suena: a [to] segundos o [by] desde donde va.
+  Future<int> seekVideo({int? to, int? by}) async {
+    final s = selectedScreen;
+    if (s == null) throw StateError('Primero elige una pantalla');
+    return s.isTv ? TvClient(s).seek(to: to, by: by) : ProjectorClient(s).seek(to: to, by: by);
+  }
+
+  Future<void> _play(VideoCandidate video, {int? start}) async {
     final s = selectedScreen;
     if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
     status = 'Enviando a ${s.name}…';
     notifyListeners();
     if (s.isTv) {
-      await TvClient(s).play(video.id);
+      await TvClient(s).play(video.id, start: start);
     } else {
-      await ProjectorClient(s).play(video);
+      await ProjectorClient(s).play(video, start: start);
     }
     lastSentVideoId = video.id;
     status = _sendStatus = 'En ${s.name}: ${video.title}';

@@ -9,7 +9,12 @@ class Config {
   );
   static const youtubeApiKey = String.fromEnvironment('YOUTUBE_API_KEY');
 
+  /// Asistente de voz (Claude Haiku). Queda dentro del APK: usar una key propia
+  /// con límite de gasto en la consola de Anthropic.
+  static const anthropicApiKey = String.fromEnvironment('ANTHROPIC_API_KEY');
+
   static bool get hasSpotify => spotifyClientId.isNotEmpty;
   static bool get hasYouTube => youtubeApiKey.isNotEmpty;
+  static bool get hasAssistant => anthropicApiKey.isNotEmpty;
   static bool get isComplete => hasSpotify && hasYouTube;
 }

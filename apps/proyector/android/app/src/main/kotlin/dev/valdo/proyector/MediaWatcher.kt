@@ -6,6 +6,7 @@ import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.os.SystemClock
 import android.service.notification.NotificationListenerService
 
 // Necesario para leer las sesiones de medios de otras apps (YouTube). No hace
@@ -53,6 +54,30 @@ object MediaWatcher {
             else -> return false
         }
         return true
+    }
+
+    /** Posicion actual en ms: la del ultimo estado mas lo que ha corrido desde entonces. */
+    private fun currentPosition(): Long? {
+        val st = controller?.playbackState ?: return null
+        var pos = st.position
+        if (st.state == PlaybackState.STATE_PLAYING && st.lastPositionUpdateTime > 0) {
+            pos += ((SystemClock.elapsedRealtime() - st.lastPositionUpdateTime) * st.playbackSpeed).toLong()
+        }
+        return pos
+    }
+
+    /**
+     * Salta a [toMs], o se mueve [byMs] desde donde va ("adelantalo 5 min").
+     * Devuelve la posicion nueva en ms, o null si YouTube no tiene sesion.
+     */
+    fun seek(toMs: Long?, byMs: Long?): Long? {
+        val c = controller ?: return null
+        val target = toMs ?: ((currentPosition() ?: return null) + (byMs ?: 0L))
+        val duration = c.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
+        var pos = target.coerceAtLeast(0L)
+        if (duration > 0) pos = pos.coerceAtMost(duration - 1000)
+        c.transportControls.seekTo(pos)
+        return pos
     }
 
     private fun attach(sessions: List<MediaController>) {

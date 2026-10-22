@@ -35,6 +35,9 @@ Future<List<VideoCandidate>> searchYouTubeWeb(String query, {int max = 5, http.C
         title: _runs(v['title']),
         channel: _runs(v['ownerText']),
         thumbnailUrl: (v['thumbnail']?['thumbnails'] as List?)?.firstOrNull?['url'] as String?,
+        duration: v['lengthText']?['simpleText'] as String?,
+        published: v['publishedTimeText']?['simpleText'] as String?,
+        views: v['viewCountText']?['simpleText'] as String?,
       ));
       if (out.length >= max) return out;
     }

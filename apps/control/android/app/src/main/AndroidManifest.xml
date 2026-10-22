@@ -3,6 +3,8 @@
     <!-- Cámara: para escanear el QR del proyector. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <!-- Micrófono: para pedirle cosas al asistente de voz. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <!-- usesCleartextTraffic: el receptor del proyector es HTTP plano en la LAN. -->
     <application
         android:label="Proyector"
@@ -51,6 +53,10 @@
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
+        </intent>
+        <!-- speech_to_text: sin esto Android 11+ no encuentra el reconocedor de voz. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>

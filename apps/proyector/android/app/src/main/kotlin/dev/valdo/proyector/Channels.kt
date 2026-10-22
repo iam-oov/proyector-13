@@ -27,6 +27,10 @@ object Channels {
                     )
                     // Play/pausa del video de YouTube: {"action": "play"|"pause"}.
                     "mediaControl" -> result.success(MediaWatcher.control(call.argument<String>("action") ?: ""))
+                    // Saltar dentro del video: {"to": ms} o {"by": ms}; devuelve la posicion nueva.
+                    "mediaSeek" -> result.success(
+                        MediaWatcher.seek(call.argument<Number>("to")?.toLong(), call.argument<Number>("by")?.toLong()),
+                    )
                     // Abre la URL en su propia tarea. CLEAR_TASK: cada envio recrea la pantalla
                     // de YouTube, para no reutilizar una superficie de video que se quedo en negro.
                     "openUrl" -> {

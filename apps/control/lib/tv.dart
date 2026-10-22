@@ -46,12 +46,12 @@ class TvClient {
 
   /// Pone el video. Si YouTube está cerrado, lo abre por DIAL con el video (va
   /// directo al video, sin "Elige una cuenta") y espera su screenId.
-  Future<void> play(String videoId) async {
+  Future<void> play(String videoId, {int? start}) async {
     var st = await status();
     if (st == null) throw StateError('La TV no responde: ¿está prendida y en la misma red Wi-Fi que el teléfono?');
     if (!st.running || st.screenId == null) {
       final r = await http
-          .post(_youtubeApp, headers: {'content-type': 'text/plain; charset=utf-8'}, body: 'v=$videoId')
+          .post(_youtubeApp, headers: {'content-type': 'text/plain; charset=utf-8'}, body: 'v=$videoId${start == null ? '' : '&t=$start'}')
           .timeout(const Duration(seconds: 8));
       if (r.statusCode != 201 && r.statusCode != 200) throw StateError('La TV no abrió YouTube (${r.statusCode})');
       // Con el video en el arranque ya basta; el screenId se espera para que
@@ -66,7 +66,7 @@ class TvClient {
       'videoId': videoId,
       'videoIds': videoId,
       'currentIndex': '0',
-      'currentTime': '0',
+      'currentTime': '${start ?? 0}',
       'listId': '',
       'audioOnly': 'false',
     });
@@ -80,6 +80,25 @@ class TvClient {
   Future<void> setVolume(int volume) => _withScreen('setVolume', {'volume': '${volume.clamp(0, 100)}'});
 
   Future<void> mute(bool on) => _withScreen(on ? 'mute' : 'unMute');
+
+  /// Salta a [to] segundos, o [by] segundos desde donde va (se pregunta la
+  /// posición a YouTube con getNowPlaying → evento nowPlaying). Devuelve la nueva.
+  Future<int> seek({int? to, int? by}) async {
+    final st = await status();
+    final id = st?.screenId;
+    if (id == null || !st!.running) throw StateError('YouTube no está abierto en la TV');
+    var target = to;
+    if (target == null) {
+      await _command(id, 'getNowPlaying', const {});
+      final m = await _sessions[screen.host]?.waitEvent('nowPlaying');
+      final now = m == null ? null : double.tryParse('${(jsonDecode(m) as Map)['currentTime']}');
+      if (now == null) throw StateError('No supe en qué minuto va el video de la TV');
+      target = now.round() + (by ?? 0);
+    }
+    target = target < 0 ? 0 : target;
+    await _command(id, 'seekTo', {'newTime': '$target'});
+    return target;
+  }
 
   /// Volumen actual de YouTube: se pide con getVolume y llega como evento
   /// onVolumeChanged en el canal de eventos de la sesión. Null si no llega.

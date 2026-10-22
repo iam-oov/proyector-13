@@ -157,6 +157,22 @@ class ProjectorClient {
     if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
   }
 
+  /// Salta dentro del video: a [to] segundos o [by] segundos desde donde va.
+  /// Devuelve la posición nueva en segundos.
+  Future<int> seek({int? to, int? by}) async {
+    final r = await http
+        .post(
+          _url('/media'),
+          headers: {'content-type': 'application/json', ..._auth},
+          body: jsonEncode({'action': 'seek', 'to': ?to, 'by': ?by}),
+        )
+        .timeout(const Duration(seconds: 5));
+    if (r.statusCode == 401) throw const ProjectorUnauthorized();
+    if (r.statusCode == 409) throw StateError('No hay video sonando en la pantalla');
+    if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
+    return ((jsonDecode(r.body) as Map<String, dynamic>)['position'] as num).toInt();
+  }
+
   /// Volumen del proyector: `(level, max, muted)` o null si no responde.
   Future<({int level, int max, bool muted})?> volume({int? level, int? delta, bool? mute}) async {
     try {
@@ -218,12 +234,13 @@ class ProjectorClient {
     if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
   }
 
-  Future<void> play(VideoCandidate video) async {
+  /// [start]: segundo en que arranca ("desde el minuto 15" = 900).
+  Future<void> play(VideoCandidate video, {int? start}) async {
     final r = await http
         .post(
           _url('/play'),
           headers: {'content-type': 'application/json', ..._auth},
-          body: jsonEncode({'videoId': video.id, 'title': video.title}),
+          body: jsonEncode({'videoId': video.id, 'title': video.title, 'start': ?start}),
         )
         .timeout(const Duration(seconds: 10));
     if (r.statusCode == 401) throw const ProjectorUnauthorized();
