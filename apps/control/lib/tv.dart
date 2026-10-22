@@ -90,7 +90,7 @@ class TvClient {
     var target = to;
     if (target == null) {
       await _command(id, 'getNowPlaying', const {});
-      final m = await _sessions[screen.host]?.waitEvent('nowPlaying');
+      final m = await _sessions[screen.host]?.waitEvent('nowPlaying', withKey: 'currentTime');
       final now = m == null ? null : double.tryParse('${(jsonDecode(m) as Map)['currentTime']}');
       if (now == null) throw StateError('No supe en qué minuto va el video de la TV');
       target = now.round() + (by ?? 0);
@@ -199,8 +199,9 @@ class _LoungeSession {
   }
 
   /// Lee el canal de eventos (long-poll) hasta ver `name` y devuelve su JSON, o null
-  /// a los 5 s.
-  Future<String?> waitEvent(String name) async {
+  /// a los 5 s. Con [withKey] se salta los que no lo traen: el canal repite primero
+  /// un nowPlaying viejo sin currentTime y la respuesta a getNowPlaying llega después.
+  Future<String?> waitEvent(String name, {String? withKey}) async {
     final client = http.Client();
     try {
       final req = http.Request(
@@ -220,8 +221,9 @@ class _LoungeSession {
       var body = '';
       await for (final chunk in res.stream.transform(utf8.decoder).timeout(const Duration(seconds: 5))) {
         body += chunk;
-        final m = pattern.firstMatch(body);
-        if (m != null) return m.group(1);
+        for (final m in pattern.allMatches(body)) {
+          if (withKey == null || m.group(1)!.contains('"$withKey"')) return m.group(1);
+        }
       }
       return null;
     } catch (_) {
