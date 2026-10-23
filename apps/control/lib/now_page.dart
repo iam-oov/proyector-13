@@ -249,7 +249,7 @@ class _Hero extends StatelessWidget {
                   // Fondo oscuro para que el chip se lea sobre cualquier imagen.
                   decoration: BoxDecoration(color: Palette.bg.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(99)),
                   child: LiveChip(
-                    live ? 'En vivo' : (mode == ProjectorMode.spotify && model.followingSpotify ? 'Esperando canción' : 'No en $screen'),
+                    live ? 'Reproduciéndose en $screen' : (mode == ProjectorMode.spotify && model.followingSpotify ? 'Esperando canción' : 'No en $screen'),
                     on: live,
                     icon: live ? Icons.cast_rounded : null,
                   ),
