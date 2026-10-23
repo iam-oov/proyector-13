@@ -17,6 +17,13 @@ import java.io.ByteArrayOutputStream
 // Canal "proyector/launch": todo lo que Dart necesita de Android y que no
 // depende de una Activity (se usa el contexto de la aplicacion).
 object Channels {
+    // Apps de YouTube en orden de preferencia (TV, Google TV, la del celular).
+    private val youtubePackages = listOf(
+        "com.google.android.youtube.tv",
+        "com.google.android.youtube.googletv",
+        "com.google.android.youtube",
+    )
+
     fun install(context: Context, engine: FlutterEngine) {
         val channel = MethodChannel(engine.dartExecutor.binaryMessenger, "proyector/launch")
         channel.setMethodCallHandler { call, result ->
@@ -41,8 +48,15 @@ object Channels {
                             result.error("args", "falta url", null)
                             return@setMethodCallHandler
                         }
-                        start(context, result, Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                        // Directo a la app de YouTube: tras un restablecimiento, Android TV
+                        // puede mandar los https al BrowserStub ("no tienes una aplicacion
+                        // que pueda hacer eso") aunque YouTube este instalado.
+                        youtubePackages.firstOrNull { pkg ->
+                            context.packageManager.queryIntentActivities(Intent(intent).setPackage(pkg), 0).isNotEmpty()
+                        }?.let { intent.setPackage(it) }
+                        start(context, result, intent)
                     }
                     // Carpeta privada de la app (identity.json, trading.json).
                     "filesDir" -> result.success(context.filesDir.absolutePath)
