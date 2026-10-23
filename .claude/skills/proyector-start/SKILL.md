@@ -201,6 +201,12 @@ adb -s <serial> shell pm uninstall --user 0 <paquete>   # si viene de fábrica (
 Lo de fábrica se puede regresar con `adb -s <serial> shell cmd package install-existing <paquete>`.
 El inicio se actualiza solo al volver a él.
 
+Excepción: si lo instaló la Play Store (`dumpsys package <paquete> | grep installerPackageName`
+dice `com.android.vending`, típico de `com.netflix.ninja`), **no lo borres**: la Play Store lo
+reinstala sola a los pocos minutos (pasó en ProyectorBasico). Desactívalo:
+`pm disable-user --user 0 <paquete>`. Instalado pero desactivado, la Play Store no lo toca y el
+inicio no lo muestra. Regresar: `pm enable <paquete>`.
+
 ## 6. ADB al reiniciar
 
 ```
