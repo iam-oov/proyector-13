@@ -325,6 +325,8 @@ install_app() {
   # Wi-Fi y Bluetooth en el inicio.
   sh_ pm grant $APP android.permission.ACCESS_FINE_LOCATION
   sh_ pm grant $APP android.permission.BLUETOOTH_CONNECT
+  # Ordenar las apps del inicio por la última vez que se abrieron.
+  sh_ appops set $APP GET_USAGE_STATS allow
   # Abrirla una vez: BOOT_COMPLETED solo llega a apps que ya se abrieron.
   sh_ am start -n $APP/.MainActivity >/dev/null
   ok "receptor instalado con permisos y abierto"

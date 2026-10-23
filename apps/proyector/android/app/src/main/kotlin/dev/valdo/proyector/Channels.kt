@@ -1,11 +1,13 @@
 package dev.valdo.proyector
 
+import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import android.media.AudioManager
 import android.net.Uri
 import io.flutter.embedding.engine.FlutterEngine
@@ -175,23 +177,45 @@ object Channels {
     private fun installedApps(context: Context): List<Map<String, Any?>> {
         val pm = context.packageManager
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+        val used = lastUsed(context)
         return pm.queryIntentActivities(intent, 0).map { ri ->
-            val icon = try {
-                val d = ri.loadIcon(pm)
-                val bmp = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(bmp)
-                d.setBounds(0, 0, canvas.width, canvas.height)
-                d.draw(canvas)
-                ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
-            } catch (_: Exception) {
-                null
-            }
+            val component = ComponentName(ri.activityInfo.packageName, ri.activityInfo.name)
             mapOf(
                 "package" to ri.activityInfo.packageName,
                 "activity" to ri.activityInfo.name,
                 "label" to ri.loadLabel(pm).toString(),
-                "icon" to icon,
+                "icon" to png(128, 128) { ri.loadIcon(pm) },
+                // Banner 16:9 de Android TV (el de la actividad o el de la app);
+                // null si la app no trae.
+                "banner" to png(320, 180) { pm.getActivityBanner(component) },
+                // Última vez en pantalla (ms); null si nunca o sin permiso.
+                "lastUsed" to used[ri.activityInfo.packageName],
             )
         }
+    }
+
+    /// Paquete → última vez que estuvo en pantalla, del último año. Vacío sin
+    /// el permiso (appops GET_USAGE_STATS).
+    private fun lastUsed(context: Context): Map<String, Long> = try {
+        val usm = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+        val now = System.currentTimeMillis()
+        usm.queryAndAggregateUsageStats(now - 365L * 24 * 3600 * 1000, now)
+            .mapValues { it.value.lastTimeUsed }
+            .filterValues { it > 0 }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
+    /// Dibuja el drawable en un PNG de w×h; null si no hay o falla.
+    private fun png(w: Int, h: Int, drawable: () -> Drawable?): ByteArray? = try {
+        drawable()?.let { d ->
+            val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bmp)
+            d.setBounds(0, 0, canvas.width, canvas.height)
+            d.draw(canvas)
+            ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+        }
+    } catch (_: Exception) {
+        null
     }
 }

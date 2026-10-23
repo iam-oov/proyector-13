@@ -107,6 +107,16 @@ class ReceiverIdentity {
     return true;
   }
 
+  /// True si estaba en la lista (se compara sin mayúsculas).
+  Future<bool> removePhone(String name) async {
+    final n = name.trim().toLowerCase();
+    final before = phones.length;
+    phones.removeWhere((p) => p.toLowerCase() == n);
+    if (phones.length == before) return false;
+    await _save();
+    return true;
+  }
+
   Future<void> _save() async {
     final f = _file;
     if (f == null) return;

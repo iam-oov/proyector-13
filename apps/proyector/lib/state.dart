@@ -71,6 +71,12 @@ class ReceiverState extends ChangeNotifier {
     }
   }
 
+  Future<void> removePhone(String name) async {
+    if (await identity.removePhone(name)) {
+      add('🔌  $name se desvinculó');
+    }
+  }
+
   void showPanel(ReceiverPanel p) {
     if (panel == p) return;
     panel = p;

@@ -1,8 +1,9 @@
 ---
 name: proyector-start
 description: >
-  Instala el receptor de Proyector_13 (launcher "Familia HG", cola, Spotify→YouTube,
-  trading, máscara) en un proyector o TV Android nuevo por ADB, dada su IP. Usar cuando el
+  Instala el receptor de Proyector_13 (launcher "Familia HG" con trading, Spotify, clima,
+  dólar y temas; cola, Spotify→YouTube, máscara) en un proyector o TV Android nuevo por
+  ADB, dada su IP. Usar cuando el
   usuario escriba "/proyector-start <ip>" o pida "instala el proyector en <ip>",
   "configura otro proyector", "prepara esta TV". Pregunta antes de cada cambio al sistema.
 argument-hint: <ip del proyector>
@@ -34,7 +35,9 @@ Si falla, el mensaje dice cuál de estos casos es. Explícaselo al usuario y det
   solo abre DIAL en :56789 con YouTube y Netflix.
 - **No responde** (ni ADB ni servicios de TV): apagado, otra IP u otra red. El mensaje dice
   la IP de la Mac: si es de otra red que la TV, hay que cambiar el Wi-Fi de la Mac. Muchas
-  TVs no contestan ping, así que no lo uses para decidir que está apagada.
+  TVs no contestan ping, así que no lo uses para decidir que está apagada. Si el receptor ya
+  estaba instalado, su IP actual sale en el proyector en "Vincular teléfono" (debajo del
+  nombre): pídesela al usuario antes de barrer la red.
 - **Responde pero sin ADB**: hay que activarlo a mano en el equipo.
   - Famifun / firmware Jixin: Ajustes generales → Configuración del sistema → Acerca de la
     proyección → tocar varias veces "Versión de Android". Escucha en el puerto 3333.
@@ -100,7 +103,7 @@ lo salta, y lo mismo vale para lo que propongas a mano.
 Luego, una sola AskUserQuestion con dos preguntas:
 - Pasos (multiSelect): instalar el receptor (siempre recomendado), hacerlo el inicio
   (nombra el launcher detectado), ADB al reiniciar (solo con root), DNS que bloquea
-  anuncios (Android 9+).
+  anuncios (Android 9+), quitar las apps que no funcionan (paso 5b; nombra las que haya).
 - Título del inicio: "¿Qué título quieres en el inicio?" con opciones "Familia HG"
   (el de la casa) y otra sugerencia; el usuario escribe el suyo en "Other".
 
@@ -110,9 +113,24 @@ Luego, una sola AskUserQuestion con dos preguntas:
 tools/proyector-setup.sh install <ip>
 ```
 
-Compila `apps/proyector` (sin `.env`; el receptor no lo necesita), instala, da los 4
-permisos (ventana encima, sesión de medios, ubicación para el Wi-Fi, Bluetooth) y abre la
-app. Tarda ~1 min por la compilación. Se puede repetir sin riesgo.
+Compila `apps/proyector` (sin `.env`; el receptor no lo necesita), instala, da los 5
+permisos (ventana encima, sesión de medios, ubicación para el Wi-Fi, Bluetooth y uso de
+apps para ordenarlas por la última vez que se abrieron) y abre la app. Tarda ~1 min por la
+compilación. Se puede repetir sin riesgo.
+
+Qué trae el inicio (para explicárselo al usuario al final):
+- Arriba: título, dólar en pesos (Yahoo), clima de la ubicación de la IP pública
+  (Open-Meteo; si no hay ubicación, no se muestra), fecha y hora.
+- Centro: las acciones (P&L del día, posiciones; con el control se entra a cada una y OK abre
+  su detalle) y lo que suena en Spotify. Sin trading, Spotify ocupa el centro.
+- Una fila de apps (banners de TV, la usada más reciente primero, Play Store al final) que se
+  desplaza a lo ancho.
+- Abajo, botones redondos que dicen su nombre con el foco: Trading ON/OFF (aro verde cuando
+  está prendido), Vincular teléfono, Ajustes y la bolita de temas (rosa → blanco → carbón).
+  El tema y el trading se guardan en cada equipo.
+- Ya no existe "prender/apagar desde el teléfono": solo apagaba la imagen y gastaba la
+  lámpara. Si un equipo tenía el administrador del dispositivo `.PowerAdmin`, Android lo
+  quita solo al actualizar el receptor.
 
 ## 4. Hacerlo el inicio
 
@@ -155,6 +173,24 @@ Ya cubierto en 2b (`debloat` trae la basura de Jixin y el malware de Rockchip). 
 quites el teclado, los ajustes, el Wi-Fi ni nada de Bluetooth (en Jixin,
 `com.jixin.btspeaker` es parte del Bluetooth: sin él no empareja).
 
+## 5b. Quitar las apps que no funcionan (opcional)
+
+Estos equipos no están certificados por Google, y algunas apps de streaming instaladas no
+sirven. Si `pm list packages` muestra alguna, ofrécela en la pregunta del paso 2b:
+- **Netflix** (`com.netflix.ninja`, `com.netflix.mediaclient`): dice "no es compatible".
+- **Disney+ de fábrica** (`com.disney.disneyplus` en `/odm/bundled_uninstall_back-app`):
+  pide versión nueva y se cierra al tocar.
+
+Con el sí del usuario:
+
+```
+adb -s <serial> shell pm uninstall <paquete>            # si está en /data/app
+adb -s <serial> shell pm uninstall --user 0 <paquete>   # si viene de fábrica (/odm, /system)
+```
+
+Lo de fábrica se puede regresar con `adb -s <serial> shell cmd package install-existing <paquete>`.
+El inicio se actualiza solo al volver a él.
+
 ## 6. ADB al reiniciar
 
 ```
@@ -193,6 +229,8 @@ equipo se queda sin internet, el script regresa solo al DNS automático.
    `cd apps/control && flutter build apk --release --dart-define-from-file=../../.env`, luego
    `adb -s <serial-del-teléfono> install -r build/app/outputs/flutter-apk/app-release.apk`.
 3. Correr `inspect` otra vez y mostrar el resultado: debería salir todo con `✓`.
+4. Contarle al usuario qué trae el inicio (lista del paso 3) y que el trading se apaga con el
+   primer botón de abajo si no le interesa.
 
 ## 8. Cerrar el ADB (seguridad)
 

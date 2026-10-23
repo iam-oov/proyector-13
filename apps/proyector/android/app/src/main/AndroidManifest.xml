@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Corre en el proyector (Android TV, leanback_only, sin touch). -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -18,6 +19,11 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Launcher: listar y abrir las demas apps de TV. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Ordenar las apps por la ultima vez que se usaron
+         (se concede por adb: appops set ... GET_USAGE_STATS allow). -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <application
         android:label="Proyector"
         android:name=".ProyectorApplication"

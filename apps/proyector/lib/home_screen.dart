@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'apps.dart';
+import 'dollar.dart';
 import 'identity.dart';
 import 'state.dart';
+import 'home_theme.dart';
 import 'trading_dashboard.dart';
+import 'weather.dart';
 
 /// Título del inicio si no se eligió otro. Se cambia por ADB (lo pregunta la
 /// skill /proyector-start): MainActivity guarda el extra `homeTitle` en
@@ -25,90 +28,54 @@ Future<String> loadHomeTitle() async {
   }
 }
 
-/// Colores del inicio: fondo rosa pastel, apps en morado lila y accesos del
-/// sistema en fucsia. Estilo "Liquid Glass": los tiles son vidrio teñido de esos
-/// colores sobre manchas difusas del fondo.
-const homeBackground = Color(0xFFFFD6E7);
-const homeTileColor = Color(0xFF9B6BD6);
-const homeSystemTileColor = Color(0xFFA8005C);
-
-/// Borde del tile con el foco del control: oscuro para que resalte sobre el pastel.
-const homeFocusColor = Color(0xFF4A0026);
-
-/// Vidrio teñido. Sin BackdropFilter a propósito: en proyectores de 1 GB el
-/// desenfoque real se recalcula en cada animación de foco y se traba. Como el
-/// fondo es fijo, basta con translucidez, brillo arriba, borde de luz y sombra.
-BoxDecoration glassDecoration(
-  Color tint, {
-  double radius = 20,
-  bool focused = false,
-  double opacity = 0.55,
-}) {
-  final a = focused ? opacity + 0.2 : opacity;
-  return BoxDecoration(
-    borderRadius: BorderRadius.circular(radius),
-    gradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [
-        tint.withValues(alpha: (a + 0.15).clamp(0, 1)),
-        tint.withValues(alpha: a),
-      ],
-    ),
-    border: Border.all(
-      color: focused ? homeFocusColor : Colors.white.withValues(alpha: 0.6),
-      width: focused ? 3 : 1.2,
-    ),
-    boxShadow: [
-      BoxShadow(
-        color: tint.withValues(alpha: focused ? 0.45 : 0.25),
-        blurRadius: focused ? 26 : 16,
-        offset: const Offset(0, 8),
-      ),
-    ],
-  );
+/// Si el inicio muestra las acciones (botón de trading). Se guarda en
+/// `home_trading.txt`; prendido mientras no se apague.
+Future<bool> loadHomeTrading() async {
+  final dir = await appFilesDir();
+  if (dir == null) return true;
+  try {
+    return (await File('$dir/home_trading.txt').readAsString()).trim() != 'off';
+  } catch (_) {
+    return true;
+  }
 }
 
-/// Brillo del vidrio: luz blanca que cae desde arriba.
-BoxDecoration glassHighlight({double radius = 20}) => BoxDecoration(
-  borderRadius: BorderRadius.circular(radius),
-  gradient: LinearGradient(
-    begin: Alignment.topCenter,
-    end: Alignment.center,
-    colors: [
-      Colors.white.withValues(alpha: 0.32),
-      Colors.white.withValues(alpha: 0),
-    ],
-  ),
-);
+Future<void> saveHomeTrading(bool on) async {
+  final dir = await appFilesDir();
+  if (dir == null) return;
+  try {
+    await File('$dir/home_trading.txt').writeAsString(on ? 'on' : 'off');
+  } catch (_) {
+    // Sin disco: dura hasta que se reinicie la app.
+  }
+}
 
-/// Panel de vidrio claro (encabezado) o teñido.
+/// Panel de vidrio del tema (música, cómo empezar).
 class GlassPanel extends StatelessWidget {
   const GlassPanel({
     super.key,
     required this.child,
-    this.tint = Colors.white,
-    this.opacity = 0.35,
     this.padding = const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
   });
 
   final Widget child;
-  final Color tint;
-  final double opacity;
   final EdgeInsetsGeometry padding;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: glassDecoration(tint, opacity: opacity),
-    child: DecoratedBox(
-      decoration: glassHighlight(),
-      child: Padding(padding: padding, child: child),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final p = HomePalette.of(context);
+    return DecoratedBox(
+      decoration: glassDecoration(p, p.panel, opacity: p.panelOpacity),
+      child: DecoratedBox(
+        decoration: glassHighlight(p),
+        child: Padding(padding: padding, child: child),
+      ),
+    );
+  }
 }
 
-/// Fondo del inicio: rosa pastel con manchas grandes y difusas (rosa, fucsia,
-/// lila) que se ven a través del vidrio. Es fijo: se pinta una vez.
+/// Fondo del inicio: degradado del tema con manchas grandes y difusas que se
+/// ven a través del vidrio. Es fijo: se pinta una vez por tema.
 class HomeBackdrop extends StatelessWidget {
   const HomeBackdrop({super.key, required this.child});
 
@@ -126,67 +93,53 @@ class HomeBackdrop extends StatelessWidget {
   );
 
   @override
-  Widget build(BuildContext context) => Stack(
-    children: [
-      Positioned.fill(
-        child: RepaintBoundary(
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFFFFE4F0),
-                        homeBackground,
-                        Color(0xFFF3D4F2),
-                      ],
+  Widget build(BuildContext context) {
+    final p = HomePalette.of(context);
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: RepaintBoundary(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: p.background,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                left: -140,
-                top: -160,
-                child: _blob(const Color(0xFFFF5FA2), 560),
-              ),
-              Positioned(
-                right: -180,
-                bottom: -220,
-                child: _blob(const Color(0xFFB98BEA), 640),
-              ),
-              Positioned(
-                right: 260,
-                top: 120,
-                child: _blob(const Color(0xFFFF9EC7), 420),
-              ),
-              Positioned(
-                left: 180,
-                bottom: -160,
-                child: _blob(const Color(0xFFE88BD8), 380),
-              ),
-            ],
+                Positioned(left: -140, top: -160, child: _blob(p.blobs[0], 560)),
+                Positioned(
+                  right: -180,
+                  bottom: -220,
+                  child: _blob(p.blobs[1], 640),
+                ),
+                Positioned(right: 260, top: 120, child: _blob(p.blobs[2], 420)),
+                Positioned(
+                  left: 180,
+                  bottom: -160,
+                  child: _blob(p.blobs[3], 380),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
-      child,
-    ],
-  );
+        child,
+      ],
+    );
+  }
 }
 
-/// Tema claro del inicio: con fondo pastel el texto va oscuro.
-final homeTheme = ThemeData(
-  brightness: Brightness.light,
-  colorSchemeSeed: homeTileColor,
-  scaffoldBackgroundColor: homeBackground,
-  useMaterial3: true,
-);
 
-/// Pantalla de inicio del proyector: tiles de apps + Vincular + Ajustes,
-/// navegables con el control; a la derecha, las estadísticas de trading.
-/// Abajo, el último envío.
+/// Pantalla de inicio del proyector, navegable con el control. Arriba título,
+/// fecha, hora y clima; al centro las acciones (o la música si no hay
+/// trading); una fila de apps que se desplaza a lo ancho; abajo los accesos
+/// del sistema, el último envío y la conexión. Todo cabe en la pantalla: nada
+/// empuja nada hacia abajo.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key, required this.state});
 
@@ -196,12 +149,26 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+/// Lo último que mostró el inicio. Al volver del QR el inicio se crea de nuevo:
+/// arranca con esto (no con los valores por defecto) mientras relee del disco,
+/// así no parpadea el tema, la fila de apps ni el trading.
+class _HomeMemory {
+  static List<TvApp> apps = [];
+  static String title = householdTitle;
+  static HomePalette palette = HomePalette.rosa;
+  static bool showTrading = true;
+  static AppActivity? vendorSettings;
+  static AppActivity? androidSettings;
+}
+
 class _HomeScreenState extends State<HomeScreen> {
-  List<TvApp> _apps = [];
-  String _title = householdTitle;
+  List<TvApp> _apps = _HomeMemory.apps;
+  String _title = _HomeMemory.title;
+  HomePalette _palette = _HomeMemory.palette;
+  bool _showTrading = _HomeMemory.showTrading;
   // Accesos de ajustes que existen en este equipo (cambian según el fabricante).
-  AppActivity? _vendorSettings;
-  AppActivity? _androidSettings;
+  AppActivity? _vendorSettings = _HomeMemory.vendorSettings;
+  AppActivity? _androidSettings = _HomeMemory.androidSettings;
   String? _error;
   // Al volver al inicio se relee la lista: así aparecen las apps recién instaladas.
   late final _lifecycle = AppLifecycleListener(onResume: _load);
@@ -211,6 +178,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _lifecycle;
+    // De regreso (las apps ya estaban en memoria): el foco va a la primera.
+    if (_apps.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _firstApp.requestFocus(),
+      );
+    }
     _load();
   }
 
@@ -224,9 +197,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _load() async {
     try {
       final title = await loadHomeTitle();
+      final palette = await loadHomePalette();
+      final showTrading = await loadHomeTrading();
       final all = await installedApps();
       // Si el fabricante pone sus ajustes como app (com.android.tv.settings en el
-      // Rockchip), van a la fila de accesos y no se repiten en la cuadrícula.
+      // Rockchip), van a la fila de accesos y no se repiten en la de apps.
       final gridSettings = all
           .where((a) => a.package == androidSettings.package)
           .firstOrNull;
@@ -251,10 +226,12 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       final first = _apps.isEmpty && apps.isNotEmpty;
       setState(() {
-        _title = title;
-        _apps = apps;
-        _vendorSettings = vendor;
-        _androidSettings = android;
+        _title = _HomeMemory.title = title;
+        _palette = _HomeMemory.palette = palette;
+        _showTrading = _HomeMemory.showTrading = showTrading;
+        _apps = _HomeMemory.apps = apps;
+        _vendorSettings = _HomeMemory.vendorSettings = vendor;
+        _androidSettings = _HomeMemory.androidSettings = android;
       });
       // Las apps llegan después del primer frame: el foco inicial va a la primera.
       if (first) {
@@ -265,6 +242,18 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
+  }
+
+  /// La bolita de temas: rosa → blanco → oscuro → rosa.
+  /// El botón de trading: muestra u oculta las acciones del inicio.
+  void _toggleTrading() {
+    setState(() => _showTrading = _HomeMemory.showTrading = !_showTrading);
+    unawaited(saveHomeTrading(_showTrading));
+  }
+
+  void _nextTheme() {
+    setState(() => _palette = _HomeMemory.palette = _palette.next);
+    unawaited(saveHomePalette(_palette));
   }
 
   Future<void> _open(Future<void> Function() action) async {
@@ -278,219 +267,27 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
-    // Tamaños del tema de la app (homeTheme.textTheme solo trae colores) con
-    // los colores oscuros del inicio.
-    final text = Theme.of(context).textTheme.merge(homeTheme.textTheme);
-    // La tarjeta de trading conserva el tema oscuro de la app.
-    final appTheme = Theme.of(context);
+    // Tamaños del tema de la app (el del inicio solo trae colores) con los
+    // colores del tema elegido.
+    final text = Theme.of(context).textTheme.merge(_palette.theme.textTheme);
     return Theme(
-      data: homeTheme,
+      data: _palette.theme,
       child: Scaffold(
         body: HomeBackdrop(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 28),
+            padding: const EdgeInsets.fromLTRB(26, 18, 26, 18),
             child: ListenableBuilder(
               listenable: state,
               builder: (context, _) => Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Título y hora a la misma altura y del mismo tamaño.
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _title,
-                            style: text.displaySmall?.copyWith(height: 1),
-                          ),
-                          // El nombre de esta pantalla (el del QR) queda como subtítulo.
-                          Text(
-                            state.identity.name,
-                            style: text.bodyMedium?.copyWith(
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      GlassPanel(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            const ClockText(),
-                            const ConnectivityRow(),
-                            Text(
-                              state.phones.isEmpty
-                                  ? 'Nadie conectado'
-                                  : 'Conectado: ${state.phones.join(', ')}',
-                              style: text.bodyMedium?.copyWith(
-                                color: Colors.black87,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, box) {
-                            // Cada app mide lo que su ícono y su nombre: así caben
-                            // más por fila (un nombre largo solo ensancha su tile).
-                            const gap = 12.0;
-                            final vendor = _vendorSettings;
-                            final android = _androidSettings;
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Wrap(
-                                  spacing: gap,
-                                  runSpacing: gap,
-                                  children: [
-                                    for (final (i, app) in _apps.indexed)
-                                      HomeTile(
-                                        label: app.label,
-                                        icon: app.icon == null
-                                            ? const Icon(Icons.apps, size: 34)
-                                            : Image.memory(
-                                                app.icon!,
-                                                width: 56,
-                                                height: 56,
-                                                filterQuality:
-                                                    FilterQuality.medium,
-                                              ),
-                                        focusNode: i == 0 ? _firstApp : null,
-                                        onTap: () => _open(
-                                          () => launchPackage(app.package),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                                const SizedBox(height: gap),
-                                // Accesos del sistema: una fila compacta debajo de las apps.
-                                Row(
-                                  children: [
-                                    HomeTile(
-                                      compact: true,
-                                      label: 'Vincular teléfono',
-                                      icon: const Icon(
-                                        Icons.qr_code_2,
-                                        size: 24,
-                                      ),
-                                      color: homeSystemTileColor,
-                                      autofocus: _apps.isEmpty,
-                                      onTap: () =>
-                                          state.showPanel(ReceiverPanel.qr),
-                                    ),
-                                    // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
-                                    if (vendor != null) ...[
-                                      const SizedBox(width: gap),
-                                      HomeTile(
-                                        compact: true,
-                                        label: 'Ajustes',
-                                        icon: const Icon(
-                                          Icons.settings,
-                                          size: 24,
-                                        ),
-                                        color: homeSystemTileColor,
-                                        onTap: () => _open(
-                                          () => launchComponent(
-                                            vendor.package,
-                                            vendor.activity,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                    // Los de Android TV: apps, cuentas, mandos, redes.
-                                    if (android != null) ...[
-                                      const SizedBox(width: gap),
-                                      HomeTile(
-                                        compact: true,
-                                        label: 'Ajustes Android',
-                                        icon: const Icon(Icons.tune, size: 24),
-                                        color: homeSystemTileColor,
-                                        onTap: () => _open(
-                                          () => launchComponent(
-                                            android.package,
-                                            android.activity,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ],
-                            );
-                          },
-                        ),
-                      ),
-                      // Estadísticas de trading (solo si hay movimientos registrados).
-                      if (state.trades.isNotEmpty) ...[
-                        const SizedBox(width: 20),
-                        SizedBox(
-                          width: 288,
-                          child: Theme(
-                            data: appTheme,
-                            child: TradingStats(state: state),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (_error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 12),
-                      child: Text(
-                        _error!,
-                        style: text.bodyMedium?.copyWith(
-                          color: Colors.red.shade800,
-                        ),
-                      ),
-                    ),
-                  const Spacer(),
-                  if (state.queueInfo != null) ...[
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.shuffle,
-                          size: 20,
-                          color: Colors.black87,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Cola: ${state.queueInfo}',
-                          style: text.titleSmall,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-                  if (state.spotifyLinked && state.nowPlaying != null) ...[
-                    NowPlayingBar(state: state),
-                    const SizedBox(height: 16),
-                  ],
+                  _topBar(text),
+                  const SizedBox(height: 14),
+                  Expanded(child: _hero(state)),
+                  const SizedBox(height: 14),
+                  _appsRow(text),
                   const SizedBox(height: 10),
-                  // Último envío en una sola línea.
-                  Text(
-                    state.events.isEmpty
-                        ? 'Último envío: todavía nada. Manda un video desde el teléfono.'
-                        : 'Último envío · ${_hhmm(state.events.first.at)}  ${state.events.first.message}',
-                    style: text.bodyMedium?.copyWith(
-                      color: state.events.isEmpty
-                          ? Colors.black87
-                          : (state.events.first.error
-                                ? Colors.red.shade800
-                                : Colors.black87),
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  _bottomRow(state),
                 ],
               ),
             ),
@@ -500,58 +297,395 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  static String _hhmm(DateTime t) =>
-      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
-}
-
-/// "Sonando ahora" en Spotify (lo lee el propio proyector) y si lo está siguiendo.
-class NowPlayingBar extends StatelessWidget {
-  const NowPlayingBar({super.key, required this.state});
-
-  final ReceiverState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = state.nowPlaying!;
-    final text = Theme.of(context).textTheme;
-    return Row(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: t.artUrl == null
-              ? const SizedBox.square(dimension: 44, child: Icon(Icons.album))
-              : Image.network(
-                  t.artUrl!,
-                  width: 44,
-                  height: 44,
-                  fit: BoxFit.cover,
-                ),
+  Widget _topBar(TextTheme text) => Row(
+    children: [
+      Expanded(
+        child: Text(
+          _title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${t.isPlaying ? 'Sonando' : 'En pausa'} en Spotify · '
-                '${state.spotifyFollowing ? 'el video sigue a la música' : 'seguimiento apagado'}',
-                style: text.bodySmall?.copyWith(color: Colors.black87),
-              ),
-              Text(
-                '${t.title} — ${t.artist}',
-                style: text.titleSmall,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+      ),
+      const DollarText(),
+      const SizedBox(width: 20),
+      const WeatherText(),
+      const SizedBox(width: 20),
+      const ClockText(),
+    ],
+  );
+
+  /// Lo principal: las acciones con Spotify al lado; si falta una, la otra
+  /// ocupa todo; sin ninguna, cómo empezar.
+  Widget _hero(ReceiverState state) {
+    final trading = _showTrading && state.trades.isNotEmpty;
+    final music =
+        (state.spotifyLinked && state.nowPlaying != null) ||
+        state.queueInfo != null;
+    final stats = TradingStats(state: state);
+    if (trading && music) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: stats),
+          // Sin fondos, una línea separa las acciones de la música.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: VerticalDivider(
+              width: 1,
+              thickness: 1,
+              color: _palette.muted.withValues(alpha: 0.25),
+            ),
+          ),
+          SizedBox(width: 190, child: MusicCard(state: state)),
+        ],
+      );
+    }
+    if (trading) return stats;
+    if (music) return MusicCard(state: state, large: true);
+    return IdleCard(state: state);
+  }
+
+  /// Una sola fila de apps; si no caben, se desplaza a lo ancho con el control
+  /// (el foco lleva el scroll) y la última se ve cortada en la orilla.
+  Widget _appsRow(TextTheme text) {
+    if (_apps.isEmpty) {
+      return SizedBox(
+        height: AppTile.height,
+        child: Center(
+          child: Text(
+            _error ?? 'Buscando apps…',
+            style: text.bodyMedium?.copyWith(
+              color: _error == null ? _palette.muted : _palette.error,
+            ),
           ),
         ),
+      );
+    }
+    return SizedBox(
+      // Aire arriba y abajo para el tile con foco (crece 8%).
+      height: AppTile.height + 12,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        clipBehavior: Clip.none,
+        itemCount: _apps.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final app = _apps[i];
+          return AppTile(
+            app: app,
+            focusNode: i == 0 ? _firstApp : null,
+            onTap: () => _open(() => launchPackage(app.package)),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _bottomRow(ReceiverState state) {
+    const gap = 10.0;
+    final vendor = _vendorSettings;
+    final android = _androidSettings;
+    return Row(
+      children: [
+        // Trading: con el aro verde cuando está prendido.
+        RevealButton(
+          label: _showTrading ? 'Trading ON' : 'Trading OFF',
+          icon: Icons.show_chart,
+          color: _palette.system,
+          active: _showTrading,
+          onTap: _toggleTrading,
+        ),
+        const SizedBox(width: gap),
+        RevealButton(
+          label: 'Vincular teléfono',
+          icon: Icons.qr_code_2,
+          color: _palette.system,
+          autofocus: _apps.isEmpty,
+          onTap: () => state.showPanel(ReceiverPanel.qr),
+        ),
+        // Los del fabricante: trapezoide, modo de proyección, imagen, sonido, red.
+        if (vendor != null) ...[
+          const SizedBox(width: gap),
+          RevealButton(
+            label: 'Ajustes',
+            icon: Icons.settings,
+            color: _palette.system,
+            onTap: () => _open(
+              () => launchComponent(vendor.package, vendor.activity),
+            ),
+          ),
+        ],
+        // Los de Android TV: apps, cuentas, mandos, redes.
+        if (android != null) ...[
+          const SizedBox(width: gap),
+          RevealButton(
+            label: 'Ajustes Android',
+            icon: Icons.tune,
+            color: _palette.system,
+            onTap: () => _open(
+              () => launchComponent(android.package, android.activity),
+            ),
+          ),
+        ],
+        const SizedBox(width: gap),
+        // Temas: la bolita es del color del tema actual.
+        RevealButton(
+          label: 'Tema ${_palette.label.toLowerCase()}',
+          color: _palette.swatch,
+          onTap: _nextTheme,
+        ),
+        const Spacer(),
+        const ConnectivityRow(),
       ],
     );
   }
 }
 
-/// Wi-Fi (nombre + barras de intensidad) y Bluetooth conectados; cada 10 s.
+/// Lo que suena en Spotify (lo lee el propio proyector) con la cola; si solo
+/// hay cola, la cola. `large` cuando ocupa el centro (no hay trading).
+class MusicCard extends StatelessWidget {
+  const MusicCard({super.key, required this.state, this.large = false});
+
+  final ReceiverState state;
+  final bool large;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = state.spotifyLinked ? state.nowPlaying : null;
+    final queue = state.queueInfo;
+    final text = Theme.of(context).textTheme;
+    final p = HomePalette.of(context);
+    final accent = p.accent;
+    final label = t == null
+        ? 'Cola'
+        : large
+        ? '${t.isPlaying ? 'Sonando' : 'En pausa'} en Spotify'
+        : (t.isPlaying ? 'Spotify' : 'Spotify · pausa');
+    final pills = [
+      if (t != null)
+        state.spotifyFollowing
+            ? 'El video sigue a la música'
+            : 'Seguimiento apagado',
+      if (queue != null && t != null) 'Cola · $queue',
+    ];
+    // Sin fondo propio, como las acciones: directo sobre el fondo del inicio.
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          // La portada se achica si la pantalla es baja.
+          final art = large
+              ? (box.maxHeight - 8).clamp(64.0, 176.0)
+              : (box.maxHeight - 120).clamp(48.0, 84.0);
+          final cover = ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox.square(
+              dimension: art,
+              child: t?.artUrl == null
+                  ? ColoredBox(
+                      color: Colors.white.withValues(alpha: 0.4),
+                      child: Icon(
+                        t == null ? Icons.queue_music : Icons.album,
+                        size: art * 0.45,
+                        color: accent,
+                      ),
+                    )
+                  : Image.network(t!.artUrl!, fit: BoxFit.cover),
+            ),
+          );
+          final heading = Row(
+            children: [
+              Icon(
+                t == null ? Icons.shuffle : Icons.graphic_eq,
+                size: 16,
+                color: accent,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.labelMedium?.copyWith(
+                    color: accent,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+            ],
+          );
+          final titles = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                t?.title ?? queue ?? '',
+                maxLines: large ? 2 : 1,
+                overflow: TextOverflow.ellipsis,
+                style: (large ? text.headlineMedium : text.titleMedium)
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              if (t != null)
+                Text(
+                  t.album == null || !large
+                      ? t.artist
+                      : '${t.artist} · ${t.album}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: (large ? text.titleMedium : text.bodyMedium)
+                      ?.copyWith(color: p.muted),
+                ),
+            ],
+          );
+          final chips = Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [for (final p in pills) _Pill(p)],
+          );
+          if (large) {
+            return Row(
+              children: [
+                cover,
+                const SizedBox(width: 22),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      heading,
+                      const SizedBox(height: 8),
+                      titles,
+                      if (pills.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        chips,
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            );
+          }
+          // Angosta (al lado de las acciones): portada a todo el ancho con
+          // alto fijo (recortada) y los textos justo debajo.
+          final note = t == null
+              ? null
+              : (queue != null
+                    ? 'Cola · $queue'
+                    : (state.spotifyFollowing ? null : 'Seguimiento apagado'));
+          final coverHeight = (box.maxHeight - (note == null ? 82 : 100))
+              .clamp(40.0, 96.0);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              heading,
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: coverHeight,
+                  child: t?.artUrl == null
+                      ? ColoredBox(
+                          color: Colors.white.withValues(alpha: 0.4),
+                          child: Icon(
+                            t == null ? Icons.queue_music : Icons.album,
+                            size: coverHeight * 0.5,
+                            color: accent,
+                          ),
+                        )
+                      : Image.network(t!.artUrl!, fit: BoxFit.cover),
+                ),
+              ),
+              const SizedBox(height: 10),
+              titles,
+              if (note != null)
+                Text(
+                  note,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: text.bodySmall?.copyWith(color: p.muted),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _Pill extends StatelessWidget {
+  const _Pill(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = HomePalette.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: p.accent.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(99),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: p.accent,
+        ),
+      ),
+    );
+  }
+}
+
+/// Sin trading ni música: cómo empezar.
+class IdleCard extends StatelessWidget {
+  const IdleCard({super.key, required this.state});
+
+  final ReceiverState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final p = HomePalette.of(context);
+    return GlassPanel(
+      padding: const EdgeInsets.all(24),
+      child: Row(
+        children: [
+          Icon(Icons.cast_rounded, size: 56, color: p.accent),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Manda un video o pon música desde el teléfono',
+                  style: text.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  state.phones.isEmpty
+                      ? 'Primero vincula el teléfono con el código QR (abajo, "Vincular teléfono").'
+                      : 'En la app de control: Buscar, Playlists o Seguir a Spotify.',
+                  style: text.titleMedium?.copyWith(color: p.muted),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Wi-Fi (nombre) y Bluetooth conectados; cada 10 s. Sin Wi-Fi, en rojo.
 class ConnectivityRow extends StatefulWidget {
   const ConnectivityRow({super.key});
 
@@ -598,62 +732,50 @@ class _ConnectivityRowState extends State<ConnectivityRow> {
 
   @override
   Widget build(BuildContext context) {
+    final p = HomePalette.of(context);
     final style = Theme.of(context).textTheme.bodyMedium
-        ?.copyWith(color: Colors.black87);
+        ?.copyWith(color: p.muted);
     final wifi = _wifi;
     final level = (wifi?['level'] as num?)?.toInt() ?? 0;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          wifi == null
+              ? Icons.wifi_off
+              : const [
+                  Icons.wifi_1_bar,
+                  Icons.wifi_1_bar,
+                  Icons.wifi_2_bar,
+                  Icons.wifi,
+                  Icons.wifi,
+                ][level.clamp(0, 4)],
+          size: 18,
+          color: wifi == null ? p.error : p.muted,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          wifi == null ? 'Sin Wi-Fi' : '${wifi['ssid'] ?? 'Wi-Fi'}',
+          style: wifi == null
+              ? style?.copyWith(color: p.error)
+              : style,
+        ),
+        for (final d in _bt) ...[
+          const SizedBox(width: 14),
           Icon(
-            wifi == null
-                ? Icons.wifi_off
-                : const [
-                    Icons.wifi_1_bar,
-                    Icons.wifi_1_bar,
-                    Icons.wifi_2_bar,
-                    Icons.wifi,
-                    Icons.wifi,
-                  ][level],
+            d['kind'] == 'audio' ? Icons.headphones : Icons.bluetooth_connected,
             size: 18,
-            color: wifi == null ? Colors.red.shade800 : Colors.black87,
+            color: p.bluetooth,
           ),
-          const SizedBox(width: 6),
-          Text(
-            wifi == null
-                ? 'Sin Wi-Fi'
-                : '${wifi['ssid'] ?? 'Wi-Fi'} · ${_signal(level)} (${wifi['rssi']} dBm)',
-            style: style,
-          ),
-          for (final d in _bt) ...[
-            const SizedBox(width: 14),
-            Icon(
-              d['kind'] == 'audio'
-                  ? Icons.headphones
-                  : Icons.bluetooth_connected,
-              size: 18,
-              color: Colors.blue.shade800,
-            ),
-            const SizedBox(width: 4),
-            Text('${d['name']}', style: style),
-          ],
+          const SizedBox(width: 4),
+          Text('${d['name']}', style: style),
         ],
-      ),
+      ],
     );
   }
-
-  static String _signal(int level) => const [
-    'muy débil',
-    'débil',
-    'regular',
-    'buena',
-    'excelente',
-  ][level.clamp(0, 4)];
 }
 
-/// Hora y fecha, actualizadas cada 15 s.
+/// "Jueves 22 de octubre  11:46" del tamaño del clima, cada 15 s.
 class ClockText extends StatefulWidget {
   const ClockText({super.key});
 
@@ -683,144 +805,245 @@ class _ClockTextState extends State<ClockText> {
   Widget build(BuildContext context) {
     final now = DateTime.now();
     const days = [
-      'lunes',
-      'martes',
-      'miércoles',
-      'jueves',
-      'viernes',
-      'sábado',
-      'domingo',
+      'Lunes',
+      'Martes',
+      'Miércoles',
+      'Jueves',
+      'Viernes',
+      'Sábado',
+      'Domingo',
     ];
     const months = [
-      'ene',
-      'feb',
-      'mar',
-      'abr',
-      'may',
-      'jun',
-      'jul',
-      'ago',
-      'sep',
-      'oct',
-      'nov',
-      'dic',
+      'enero',
+      'febrero',
+      'marzo',
+      'abril',
+      'mayo',
+      'junio',
+      'julio',
+      'agosto',
+      'septiembre',
+      'octubre',
+      'noviembre',
+      'diciembre',
     ];
-    final text = Theme.of(context).textTheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.end,
+    final p = HomePalette.of(context);
+    final style = Theme.of(context).textTheme.titleMedium;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
-          style: text.displaySmall?.copyWith(
-            fontWeight: FontWeight.w300,
-            height: 1,
-          ),
-        ),
-        Text(
           '${days[now.weekday - 1]} ${now.day} de ${months[now.month - 1]}',
-          style: text.bodyMedium?.copyWith(color: Colors.black87),
+          style: style?.copyWith(color: p.muted),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+          style: style?.copyWith(color: p.text, fontWeight: FontWeight.w700),
         ),
       ],
     );
   }
 }
 
-/// Tile grande con resalte de foco para el D-pad. Enter/OK lo activa.
-class HomeTile extends StatefulWidget {
-  const HomeTile({
+/// App de la fila: rectángulo 16:9 con el banner de TV de la app a todo el
+/// tile, sin nombre (queda para los lectores de pantalla). Con foco crece y
+/// se marca el borde.
+class AppTile extends StatefulWidget {
+  const AppTile({
     super.key,
-    required this.label,
-    required this.icon,
+    required this.app,
     required this.onTap,
-    this.color,
-    this.autofocus = false,
-    this.width,
-    this.compact = false,
     this.focusNode,
   });
 
-  final String label;
-  final Widget icon;
-  final VoidCallback onTap;
-  final Color? color;
-  final bool autofocus;
+  /// Rectángulo 16:9, como los banners de Android TV.
+  static const height = 96.0;
+  static const width = height * 16 / 9;
 
-  /// Ancho fijo (fila de accesos); sin él, el tile mide lo que su contenido.
-  final double? width;
+  final TvApp app;
+  final VoidCallback onTap;
   final FocusNode? focusNode;
 
-  /// Fila baja con ícono y texto lado a lado (accesos del sistema).
-  final bool compact;
-
   @override
-  State<HomeTile> createState() => _HomeTileState();
+  State<AppTile> createState() => _AppTileState();
 }
 
-class _HomeTileState extends State<HomeTile> {
+class _AppTileState extends State<AppTile> {
   bool _focused = false;
 
   @override
   Widget build(BuildContext context) {
-    final label = Text(
-      widget.label,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w600,
-        color: Colors.white,
-        // Sombra suave: el texto blanco se sigue leyendo sobre el vidrio.
-        shadows: [Shadow(color: Color(0x66000000), blurRadius: 4)],
+    final banner = widget.app.banner;
+    final icon = widget.app.icon;
+    final p = HomePalette.of(context);
+    return Semantics(
+      label: widget.app.label,
+      button: true,
+      child: AnimatedScale(
+        scale: _focused ? 1.08 : 1,
+        duration: const Duration(milliseconds: 120),
+        child: AnimatedContainer(
+          width: AppTile.width,
+          height: AppTile.height,
+          duration: const Duration(milliseconds: 120),
+          decoration: glassDecoration(p, p.tile, focused: _focused),
+          // El borde va encima del ícono: con foco se marca aunque el ícono
+          // llene el tile.
+          foregroundDecoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: _focused ? p.focus : p.edge,
+              width: _focused ? 3 : 1.2,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // El banner llena el tile; sin banner, el ícono al centro del vidrio.
+              if (banner != null)
+                Image.memory(
+                  banner,
+                  fit: BoxFit.cover,
+                  filterQuality: FilterQuality.medium,
+                )
+              else if (icon != null)
+                Center(
+                  child: Image.memory(
+                    icon,
+                    width: 64,
+                    height: 64,
+                    filterQuality: FilterQuality.medium,
+                  ),
+                )
+              else
+                const Icon(Icons.apps, size: 44, color: Colors.white),
+              Material(
+                type: MaterialType.transparency,
+                child: InkWell(
+                  focusNode: widget.focusNode,
+                  onTap: widget.onTap,
+                  onFocusChange: (f) => setState(() => _focused = f),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
-    final icon = IconTheme(
-      data: const IconThemeData(color: Colors.white),
-      child: widget.icon,
-    );
-    return AnimatedScale(
-      scale: _focused ? 1.06 : 1,
-      duration: const Duration(milliseconds: 120),
-      child: AnimatedContainer(
-        // El tamaño va aquí: así el borde del vidrio queda por dentro y no
-        // ensancha el tile (si no, la fila pierde un lugar).
-        width: widget.width,
-        height: widget.compact ? 52 : 106,
-        constraints: widget.width == null
-            ? const BoxConstraints(minWidth: 112, maxWidth: 240)
-            : null,
-        duration: const Duration(milliseconds: 120),
-        decoration: glassDecoration(
-          widget.color ?? homeTileColor,
-          focused: _focused,
-        ),
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            autofocus: widget.autofocus,
-            focusNode: widget.focusNode,
-            borderRadius: BorderRadius.circular(20),
-            onTap: widget.onTap,
-            onFocusChange: (f) => setState(() => _focused = f),
-            child: Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: widget.compact ? 14 : 12,
-                vertical: widget.compact ? 0 : 12,
-              ),
-              decoration: glassHighlight(),
-              child: widget.compact
-                  ? Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        icon,
-                        const SizedBox(width: 10),
-                        Flexible(child: label),
+  }
+}
+
+/// Botón redondo del inicio (Vincular, Ajustes, Temas): una bolita de vidrio
+/// con su ícono; con el foco (o el mouse encima) crece y aparece su nombre al
+/// lado. Sin ícono es la bolita de temas, del color del tema actual.
+class RevealButton extends StatefulWidget {
+  const RevealButton({
+    super.key,
+    required this.label,
+    required this.color,
+    required this.onTap,
+    this.icon,
+    this.autofocus = false,
+    this.active,
+  });
+
+  final String label;
+  final Color color;
+  final IconData? icon;
+  final VoidCallback onTap;
+  final bool autofocus;
+
+  /// Botón de prender/apagar algo: `true` lo resalta con un aro verde que
+  /// brilla; null si no es de ese tipo.
+  final bool? active;
+
+  @override
+  State<RevealButton> createState() => _RevealButtonState();
+}
+
+class _RevealButtonState extends State<RevealButton> {
+  bool _focused = false;
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = HomePalette.of(context);
+    final on = _focused || _hovered;
+    final lit = widget.active == true;
+    return Semantics(
+      label: widget.label,
+      button: true,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          autofocus: widget.autofocus,
+          customBorder: const StadiumBorder(),
+          onTap: widget.onTap,
+          onFocusChange: (f) => setState(() => _focused = f),
+          onHover: (h) => setState(() => _hovered = h),
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                AnimatedScale(
+                  scale: on ? 1.1 : 1,
+                  duration: const Duration(milliseconds: 120),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      // Brillo arriba, como el vidrio de los tiles.
+                      gradient: LinearGradient(
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                        colors: [
+                          Color.lerp(widget.color, Colors.white, 0.35)!,
+                          widget.color,
+                        ],
+                      ),
+                      border: Border.all(
+                        color: on
+                            ? p.focus
+                            : (lit ? p.up : p.muted.withValues(alpha: 0.35)),
+                        width: on ? 3 : (lit ? 2.5 : 1.5),
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.18),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                        if (lit)
+                          BoxShadow(
+                            color: p.up.withValues(alpha: 0.55),
+                            blurRadius: 14,
+                            spreadRadius: 1,
+                          ),
                       ],
-                    )
-                  // Ícono y nombre centrados en el tile, a lo ancho y a lo alto.
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [icon, const SizedBox(height: 6), label],
                     ),
+                    child: widget.icon == null
+                        ? null
+                        : Icon(widget.icon, size: 22, color: Colors.white),
+                  ),
+                ),
+                if (on) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: p.text,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+              ],
             ),
           ),
         ),

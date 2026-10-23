@@ -44,6 +44,7 @@ class ReceiverServer {
     final router = Router()
       ..get('/health', _health)
       ..post('/pair', _auth(_pair))
+      ..post('/unpair', _auth(_unpair))
       ..post('/play', _auth(_play))
       ..post('/trading', _auth(_trading))
       ..post('/mask', _auth(_mask))
@@ -200,6 +201,23 @@ class ReceiverServer {
       'name': state.identity.name,
       'phones': state.phones,
     });
+  }
+
+  /// El teléfono borró esta pantalla: `{"phoneName": "..."}`. Sale de
+  /// "Conectado: …", se suelta la sesión de Spotify y se corta la cola (lo que
+  /// el teléfono puso aquí no se queda corriendo sin él).
+  Future<Response> _unpair(Request request) async {
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (_) {
+      return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
+    }
+    final phone = body['phoneName']?.toString().trim() ?? '';
+    if (phone.isNotEmpty) await state.removePhone(phone);
+    await spotify?.unlink();
+    queue?.stop();
+    return _json({'ok': true, 'phones': state.phones});
   }
 
   /// El teléfono manda su bitácora y/o pide mostrar u ocultar el tablero:
