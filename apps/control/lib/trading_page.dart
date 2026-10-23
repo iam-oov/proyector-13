@@ -43,76 +43,80 @@ class _TradingPageState extends State<TradingPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Expanded(
+              // Como las demás pestañas: arriba la pantalla elegida, sin título propio.
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                padding: const EdgeInsets.only(top: 12, bottom: 16),
                 children: [
-                  Row(
-                    children: [
-                      const Text('Trading', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
-                      const Spacer(),
-                      IconButton(
-                        tooltip: 'Actualizar precios',
-                        onPressed: model.quotesLoading ? null : model.refreshQuotes,
-                        icon: const Icon(Icons.refresh_rounded, color: Palette.text2),
+                  ScreenRow(model: model),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                      _StatsHeader(
+                        stats: s,
+                        quotesAt: model.quotesAt,
+                        nextAt: model.nextQuotesAt,
+                        loading: model.quotesLoading,
+                        onRefresh: model.quotesLoading ? null : model.refreshQuotes,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 6),
-                  _StatsHeader(stats: s, quotesAt: model.quotesAt, nextAt: model.nextQuotesAt, loading: model.quotesLoading),
-                  const SizedBox(height: 12),
-                  // Si el proyector está en el inicio, lo trae al frente; si está con un
-                  // video, la tarjeta flota encima sin interrumpirlo.
-                  SizedBox(
-                    height: 52,
-                    child: model.tradingOverlay
-                        ? OutlinedButton.icon(
-                            onPressed: model.busy ? null : model.hideTradingOverlay,
-                            icon: const Icon(Icons.fullscreen_rounded),
-                            label: const Text('Quitar del video'),
-                          )
-                        : FilledButton.icon(
-                            onPressed: canShow ? () => model.showTradingOnProjector(true) : null,
-                            icon: const Icon(Icons.cast_rounded),
-                            label: Text('Mostrar en ${screen?.name ?? 'el proyector'}',
-                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                            style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                      const SizedBox(height: 12),
+                      // Si el proyector está en el inicio, lo trae al frente; si está con un
+                      // video, la tarjeta flota encima sin interrumpirlo.
+                      SizedBox(
+                        height: 52,
+                        child: model.tradingOverlay
+                            ? OutlinedButton.icon(
+                                onPressed: model.busy ? null : model.hideTradingOverlay,
+                                icon: const Icon(Icons.fullscreen_rounded),
+                                label: const Text('Quitar del video'),
+                              )
+                            : FilledButton.icon(
+                                onPressed: canShow ? () => model.showTradingOnProjector(true) : null,
+                                icon: const Icon(Icons.cast_rounded),
+                                label: Text('Mostrar en ${screen?.name ?? 'el proyector'}',
+                                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                                style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                              ),
+                      ),
+                      if (!canShow && !model.tradingOverlay && screen != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            isTv
+                                ? '${screen.name} es una TV sin receptor: el tablero solo va en los proyectores.'
+                                : '${screen.name} no responde.',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontSize: 13, color: Palette.text3),
                           ),
-                  ),
-                  if (!canShow && !model.tradingOverlay && screen != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        isTv
-                            ? '${screen.name} es una TV sin receptor: el tablero solo va en los proyectores.'
-                            : '${screen.name} no responde.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 13, color: Palette.text3),
-                      ),
+                        ),
+                      if (model.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Notice(model.error!, error: true)),
+                      const SizedBox(height: 20),
+                      const SectionLabel('Posiciones abiertas'),
+                      const SizedBox(height: 10),
+                      if (s.positions.isEmpty)
+                        const Text('Ninguna. Registra tu primer movimiento.', style: TextStyle(color: Palette.text3)),
+                      for (final p in s.positions) ...[
+                        _PositionTile(position: p, onClose: () => _closePosition(context, p)),
+                        const SizedBox(height: 8),
+                      ],
+                      if (s.closedTrades.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        const SectionLabel('Cerrados'),
+                        for (final t in s.closedTrades)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('${t.symbol} · ${t.side == TradeSide.long ? 'Largo' : 'Corto'} · ${qtyText(t.qty)} acc.'),
+                            subtitle: Text('${money(t.entryPrice, sign: false)} → ${money(t.exitPrice, sign: false)} · ${_date(t.closedAt!)}',
+                                style: const TextStyle(color: Palette.text2)),
+                            trailing: Text(money(t.realizedPnl),
+                                style: TextStyle(color: _pnlColor(t.realizedPnl), fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()])),
+                            onLongPress: () => _confirmDelete(context, t),
+                          ),
+                      ],
+                      ],
                     ),
-                  if (model.error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Notice(model.error!, error: true)),
-                  const SizedBox(height: 20),
-                  const SectionLabel('Posiciones abiertas'),
-                  const SizedBox(height: 10),
-                  if (s.positions.isEmpty)
-                    const Text('Ninguna. Registra tu primer movimiento.', style: TextStyle(color: Palette.text3)),
-                  for (final p in s.positions) ...[
-                    _PositionTile(position: p, onClose: () => _closePosition(context, p)),
-                    const SizedBox(height: 8),
-                  ],
-                  if (s.closedTrades.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    const SectionLabel('Cerrados'),
-                    for (final t in s.closedTrades)
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text('${t.symbol} · ${t.side == TradeSide.long ? 'Largo' : 'Corto'} · ${qtyText(t.qty)} acc.'),
-                        subtitle: Text('${money(t.entryPrice, sign: false)} → ${money(t.exitPrice, sign: false)} · ${_date(t.closedAt!)}',
-                            style: const TextStyle(color: Palette.text2)),
-                        trailing: Text(money(t.realizedPnl),
-                            style: TextStyle(color: _pnlColor(t.realizedPnl), fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()])),
-                        onLongPress: () => _confirmDelete(context, t),
-                      ),
-                  ],
+                  ),
                 ],
               ),
             ),
@@ -168,12 +172,15 @@ class _TradingPageState extends State<TradingPage> {
 }
 
 class _StatsHeader extends StatelessWidget {
-  const _StatsHeader({required this.stats, required this.quotesAt, required this.nextAt, required this.loading});
+  const _StatsHeader({required this.stats, required this.quotesAt, required this.nextAt, required this.loading, this.onRefresh});
 
   final PortfolioStats stats;
   final DateTime? quotesAt;
   final DateTime? nextAt;
   final bool loading;
+
+  /// Pide los precios ya (antes era el botón junto al título de la pestaña).
+  final VoidCallback? onRefresh;
 
   @override
   Widget build(BuildContext context) {
@@ -212,6 +219,12 @@ class _StatsHeader extends StatelessWidget {
               ),
               if (!loading && nextAt != null)
                 CountdownText(until: nextAt!, prefix: 'siguiente en ', style: const TextStyle(fontSize: 12, color: Palette.text3)),
+              IconButton(
+                tooltip: 'Actualizar precios',
+                visualDensity: VisualDensity.compact,
+                onPressed: onRefresh,
+                icon: const Icon(Icons.refresh_rounded, size: 20, color: Palette.text2),
+              ),
             ],
           ),
         ],

@@ -31,8 +31,8 @@ class ControlApp extends StatelessWidget {
   }
 }
 
-/// Pestañas: Buscar, Ahora (inicial), Playlists y Trading. Sin barra de arriba:
-/// cada pestaña empieza con la fila de equipos (o su título).
+/// Pestañas: Ahora (inicial), Playlists y Trading. Sin barra de arriba: cada
+/// pestaña empieza con la fila de la pantalla, que trae la lupa de Buscar.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.model});
 
@@ -43,7 +43,7 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int _tab = 1;
+  int _tab = 0;
   int _statusSeq = 0;
 
   @override
@@ -81,10 +81,10 @@ class _HomeShellState extends State<HomeShell> {
     return Scaffold(
       body: SafeArea(
         bottom: false,
+        // Buscar ya no es pestaña: es la lupa de arriba (ScreenRow → openSearch).
         child: switch (_tab) {
-          0 => SearchPage(model: model),
-          1 => NowPage(model: model, onSearch: () => setState(() => _tab = 0)),
-          2 => PlaylistsPage(model: model),
+          0 => NowPage(model: model, onSearch: () => openSearch(context, model)),
+          1 => PlaylistsPage(model: model),
           _ => TradingPage(model: model),
         },
       ),
@@ -92,7 +92,6 @@ class _HomeShellState extends State<HomeShell> {
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.search_rounded), label: 'Buscar'),
           NavigationDestination(icon: Icon(Icons.play_circle_outline_rounded), selectedIcon: Icon(Icons.play_circle_rounded), label: 'Ahora'),
           NavigationDestination(icon: Icon(Icons.queue_music_rounded), label: 'Playlists'),
           NavigationDestination(icon: Icon(Icons.candlestick_chart_outlined), selectedIcon: Icon(Icons.candlestick_chart), label: 'Trading'),

@@ -249,8 +249,9 @@ class _Hero extends StatelessWidget {
                   // Fondo oscuro para que el chip se lea sobre cualquier imagen.
                   decoration: BoxDecoration(color: Palette.bg.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(99)),
                   child: LiveChip(
-                    live ? 'En $screen' : (mode == ProjectorMode.spotify && model.followingSpotify ? 'Esperando canción' : 'No en $screen'),
+                    live ? 'En vivo' : (mode == ProjectorMode.spotify && model.followingSpotify ? 'Esperando canción' : 'No en $screen'),
                     on: live,
+                    icon: live ? Icons.cast_rounded : null,
                   ),
                 ),
               ),
@@ -497,12 +498,26 @@ class _Chips extends StatelessWidget {
           ],
         ),
         // Un proyector con receptor puede seguir a Spotify por su cuenta; la TV no.
-        if (canFollow && !own && model.projectorOnline && (screen?.hasReceiver ?? false))
-          TextButton.icon(
-            onPressed: model.busy ? null : model.linkSpotifyToScreen,
-            icon: const Icon(Icons.link_rounded, size: 18),
-            label: const Text('Que el proyector siga a Spotify aunque guardes el teléfono'),
+        // Botón con borde (como "Quitar del video" en Trading): antes era texto y no parecía botón.
+        if (canFollow && !own && model.projectorOnline && (screen?.hasReceiver ?? false)) ...[
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: model.busy ? null : model.linkSpotifyToScreen,
+              icon: const Icon(Icons.link_rounded, size: 20),
+              label: const Text(
+                'Que el proyector siga a Spotify aunque guardes el teléfono',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+            ),
           ),
+        ],
       ],
     );
   }

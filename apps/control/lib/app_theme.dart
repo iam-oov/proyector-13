@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'model.dart';
 import 'screens_sheet.dart';
+import 'search_page.dart';
 
 /// Colores del rediseño "oscuro pulido" (Claude Design, dirección 1c): neutros
 /// con un toque de morado, un solo acento lila y verde solo para "en vivo".
@@ -94,10 +95,13 @@ class SectionLabel extends StatelessWidget {
 
 /// Chip verde de "en vivo" ("● En Sala"), o gris si [on] es falso.
 class LiveChip extends StatelessWidget {
-  const LiveChip(this.text, {super.key, this.on = true});
+  const LiveChip(this.text, {super.key, this.on = true, this.icon});
 
   final String text;
   final bool on;
+
+  /// Ícono en lugar del punto de estado (p. ej. proyectar en "En vivo").
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +112,7 @@ class LiveChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          StatusDot(on: on),
+          if (icon != null) Icon(icon, size: 14, color: c) else StatusDot(on: on),
           const SizedBox(width: 6),
           Text(
             text,
@@ -184,22 +188,35 @@ class Tile extends StatelessWidget {
 }
 
 /// Selector de pantalla arriba de cada pestaña: solo la elegida, grande, con su
-/// estado; al tocarla se abre la hoja de Pantallas para cambiar o agregar.
+/// estado; al tocarla se abre la hoja de Pantallas para cambiar o agregar. A la
+/// derecha, el + para agregar y la lupa (abre Buscar, como en YouTube).
 class ScreenRow extends StatelessWidget {
-  const ScreenRow({super.key, required this.model});
+  const ScreenRow({super.key, required this.model, this.inSearch = false});
 
   final ControlModel model;
+
+  /// Dentro de Buscar: flecha para regresar en lugar de la lupa.
+  final bool inSearch;
 
   @override
   Widget build(BuildContext context) {
     final s = model.selectedScreen;
     final online = s == null ? null : model.isScreenOnline(s.id);
-    final state = online == null ? 'revisando…' : (online ? 'en línea' : 'sin respuesta');
-    final kind = s?.kindLabel ?? '';
+    // Solo se avisa cuando algo no está bien: en línea ya lo dice el punto verde.
+    final problem = online == null ? 'revisando…' : (online ? null : 'sin respuesta');
+    final kind = s?.kindLabel ?? 'Pantalla';
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: EdgeInsets.only(left: inSearch ? 8 : 20, right: 20),
       child: Row(
         children: [
+          if (inSearch) ...[
+            IconButton(
+              tooltip: 'Regresar',
+              onPressed: () => Navigator.of(context).maybePop(),
+              icon: const Icon(Icons.arrow_back_rounded, color: Palette.text, size: 26),
+            ),
+            const SizedBox(width: 4),
+          ],
           // El nombre abre la lista para cambiar de pantalla; el + agrega otra.
           Expanded(
             child: InkWell(
@@ -210,7 +227,8 @@ class ScreenRow extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const SectionLabel('Pantalla'),
+                    // El tipo arriba ("Proyector", "TV", "Roku") en lugar de "Pantalla".
+                    SectionLabel(kind),
                     const SizedBox(height: 2),
                     Row(
                       children: [
@@ -227,8 +245,8 @@ class ScreenRow extends StatelessWidget {
                         const Icon(Icons.expand_more_rounded, color: Palette.text3, size: 28),
                       ],
                     ),
-                    if (s != null)
-                      Text('$kind · $state', style: TextStyle(fontSize: 13, color: online == false ? Palette.text3 : Palette.text2)),
+                    if (s != null && problem != null)
+                      Text(problem, style: const TextStyle(fontSize: 13, color: Palette.text3)),
                   ],
                 ),
               ),
@@ -247,10 +265,42 @@ class ScreenRow extends StatelessWidget {
               ),
             ),
           ),
+          // La lupa hasta la derecha, como en YouTube.
+          if (!inSearch) ...[
+            const SizedBox(width: 12),
+            _RoundButton(
+              tooltip: 'Buscar',
+              icon: Icons.search_rounded,
+              onTap: () => openSearch(context, model),
+            ),
+          ],
         ],
       ),
     );
   }
+}
+
+/// Botón redondo de la barra de arriba (lupa).
+class _RoundButton extends StatelessWidget {
+  const _RoundButton({required this.tooltip, required this.icon, required this.onTap});
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: Palette.surface,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Tooltip(
+            message: tooltip,
+            child: SizedBox.square(dimension: 48, child: Icon(icon, color: Palette.text, size: 26)),
+          ),
+        ),
+      );
 }
 
 /// Aviso de una línea (error en rojo).

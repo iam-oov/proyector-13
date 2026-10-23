@@ -12,6 +12,14 @@ import 'model.dart';
 /// entiende lo que se pide ("música para la playa"), manda el mejor video solo y
 /// deja los demás abajo por si no era. También entiende controles ("pausa",
 /// "adelántalo 5 minutos"). Funciona sin Spotify, para el resto de la casa.
+/// Abre Buscar como pantalla propia, encima de la pestaña actual (la lupa de
+/// arriba, como en YouTube). Atrás o la flecha regresan.
+Future<void> openSearch(BuildContext context, ControlModel model) => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(body: SafeArea(bottom: false, child: SearchPage(model: model))),
+      ),
+    );
+
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key, required this.model});
 
@@ -87,7 +95,7 @@ class _SearchPageState extends State<SearchPage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const SizedBox(height: 12),
-            ScreenRow(model: model),
+            ScreenRow(model: model, inSearch: true),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
               child: Row(
@@ -98,6 +106,8 @@ class _SearchPageState extends State<SearchPage> {
                     child: TextField(
                       controller: _controller,
                       enabled: !working,
+                      // Al abrir Buscar el teclado sale de una vez, como en YouTube.
+                      autofocus: true,
                       // Crece hacia abajo para que una frase larga del asistente se lea completa.
                       minLines: 1,
                       maxLines: 5,
