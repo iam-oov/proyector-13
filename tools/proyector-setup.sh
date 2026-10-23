@@ -236,14 +236,18 @@ set_dns() {
   fi
   sh_ settings put global private_dns_specifier $DNS_HOST
   sh_ settings put global private_dns_mode hostname
-  sleep 5
-  # Si el DNS no responde el equipo se queda "sin internet": se revierte solo.
-  if sh_ ping -c 1 -W 4 www.google.com | grep -q '1 received\|1 packets received'; then
-    ok "DNS bloqueador activo ($DNS_HOST) · quitar: dns <ip> off"
-  else
-    sh_ settings put global private_dns_mode opportunistic
-    die "con $DNS_HOST el equipo se quedó sin internet; regresé al DNS automático"
-  fi
+  # Android tarda ~10 s en validar el DNS privado: se reintenta hasta 30 s. Si nunca
+  # responde, el equipo se queda "sin internet": se revierte solo.
+  local i
+  for i in 1 2 3 4 5 6; do
+    sleep 5
+    if sh_ ping -c 1 -W 4 www.google.com | grep -q '1 received\|1 packets received'; then
+      ok "DNS bloqueador activo ($DNS_HOST) · quitar: dns <ip> off"
+      return
+    fi
+  done
+  sh_ settings put global private_dns_mode opportunistic
+  die "con $DNS_HOST el equipo se quedó sin internet; regresé al DNS automático"
 }
 
 # Cierra el ADB por red. En equipos con ro.adb.secure=0 cualquier aparato del Wi-Fi

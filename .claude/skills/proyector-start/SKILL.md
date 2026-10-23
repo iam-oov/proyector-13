@@ -230,9 +230,13 @@ equipo se queda sin internet, el script regresa solo al DNS automático.
 
 1. **IP fija** (siempre a mano, con el control; automatizarla editando
    WifiConfigStore.xml no funcionó porque el servicio de Wi-Fi reescribe el archivo desde
-   memoria): Ajustes → Red → la red Wi-Fi → Ajustes de IP → Estática, con la IP elegida. Saca la máscara y el gateway de la línea "Red" de `inspect`
-   (p. ej. `192.168.68.0/22` → máscara 255.255.252.0, prefijo 22, gateway y DNS
-   `192.168.68.1`). Sin esto la IP cambia en cada reinicio (la MAC Wi-Fi es aleatoria).
+   memoria): Ajustes → Red → la red Wi-Fi → Ajustes de IP → Estática. Dale los valores
+   campo por campo, sacados de la línea "Red" de `inspect` (p. ej. `192.168.68.0/22`):
+   Dirección IP = la actual, **Puerta de enlace** = `192.168.68.1`, **Longitud del prefijo
+   de red** = `22`, DNS 1 = `192.168.68.1`. No digas "máscara": el formulario no la pide, y
+   en el Famifun alguien la escribió en Puerta de enlace y el equipo se quedó sin internet
+   (Android avisa "DNS privado"; `dumpsys wifi | grep "Static configuration"` muestra el
+   gateway). Sin IP fija la IP cambia en cada reinicio (la MAC Wi-Fi es aleatoria).
 2. **Vincular el teléfono**: una instalación nueva crea su propio código. En el proyector,
    elegir "Vincular teléfono" y escanear el QR desde la app de control (o "Pegar código").
    Si el teléfono no tiene la app: conectarlo por USB y
