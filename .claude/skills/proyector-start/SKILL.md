@@ -65,6 +65,11 @@ que ya se había limpiado antes (el Famifun), es el estado de ese momento.
 `tools/proyector-setup.sh restore <ip>` lo regresa todo (lo borrado de /data/app no vuelve:
 era malware sin copia en el sistema).
 
+Si el equipo se **restableció de fábrica** después de ese respaldo, el archivo ya no sirve
+(`inspect` igual dice "estado previo guardado"): revisa su línea `home` y su fecha; si el
+inicio ya era `dev.valdo.proyector`, renómbralo a `….<fecha>.bak` antes del primer cambio
+para que se guarde el estado de fábrica nuevo.
+
 ## 2b. Seguridad primero (antes de instalar nada)
 
 Los proyectores y TV box baratos pueden traer malware de fábrica (en 2026-10 un Rockchip
@@ -85,7 +90,12 @@ tools/proyector-setup.sh debloat <ip>     # lista de malware/basura conocida pre
   qué parece. Revisa también `pm list packages -3`: apps con nombres mal escritos
   (`sevice`), proxys, tiendas del fabricante e IPTV pirata son sospechosas.
 - Pregunta qué quitar (multiSelect). Osvaldo ya dijo que lo sospechoso se elimina,
-  bloquea o neutraliza; aun así muestra la lista antes. Quita **primero los instaladores**
+  bloquea o neutraliza, y prefiere **eliminar** a solo desactivar; aun así muestra la lista
+  antes. Tras `debloat --apply`, quita también para el usuario los de la lista DISABLE
+  (`pm uninstall -k --user 0 <pkg>`, `restore` los regresa).
+- En un Jixin **recién restablecido**, desactivar `com.jixin.guide` (el asistente de primer
+  arranque) le borró el Wi-Fi guardado y se cortó el ADB: avisa antes de aplicar que quizá
+  tenga que volver a escribir la contraseña del Wi-Fi en el proyector (la IP se conservó). Quita **primero los instaladores**
   (si no, alcanzan a reinstalar lo demás) y usa `debloat --apply` para los conocidos.
   Para lo nuevo: `pm uninstall <pkg>` si está en /data/app, `pm uninstall -k --user 0`
   si es del sistema (`disable-user` no basta: el fabricante lo reactiva).

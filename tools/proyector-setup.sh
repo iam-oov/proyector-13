@@ -289,6 +289,7 @@ inspect() {
     for p in ACCESS_FINE_LOCATION BLUETOOTH_CONNECT; do
       print -r -- "$perms" | grep -q "android.permission.$p: granted=true" && ok "permiso: $p" || todo "falta permiso: $p"
     done
+    [[ $(sh_ appops get $APP GET_USAGE_STATS) == *allow* ]] && ok "permiso: uso de apps (orden del inicio)" || todo "falta permiso: uso de apps (orden del inicio)"
   else
     todo "receptor NO instalado"
   fi
@@ -367,7 +368,8 @@ set_title() {
 
 debloat() {
   local apply=${1:-} disabled; disabled=$(sh_ pm list packages -d)
-  local n=0
+  # `where` se declara aquí: en zsh, `local` repetido dentro del ciclo imprime su valor.
+  local n=0 where
   [[ $apply == --apply ]] && record
   for p in $DISABLE; do
     protected $p && continue
@@ -380,7 +382,7 @@ debloat() {
     protected $p && continue
     installed $p || continue
     (( n++ ))
-    local where; where=$(sh_ pm path $p)
+    where=$(sh_ pm path $p)
     if [[ $apply != --apply ]]; then todo "quitar $p"
     elif [[ $where == *package:/data/app/* ]]; then
       sh_ am force-stop $p; sh_ pm uninstall $p >/dev/null; ok "borrada $p (no viene del sistema)"
@@ -467,7 +469,8 @@ watch_() {
   for (( i = 0; i < secs; i += 30 )); do
     sleep 30
     after=$(sh_ pm list packages | sort)
-    new=$(comm -13 <(print -r -- "$before") <(print -r -- "$after") | sed 's/package://')
+    # El receptor se puede instalar mientras se vigila: no cuenta como sospechoso.
+    new=$(comm -13 <(print -r -- "$before") <(print -r -- "$after") | sed 's/package://' | grep -vx "$APP")
     if [[ -n $new ]]; then
       for p in ${(f)new}; do
         print "⚠ se instaló sola: $p ($(sh_ dumpsys package $p | grep -m1 -oE 'installerPackageName=[^ ]*'))"
