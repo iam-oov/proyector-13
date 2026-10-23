@@ -104,16 +104,16 @@ class LiveChip extends StatelessWidget {
     final c = on ? Palette.live : Palette.text3;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: on ? c.withValues(alpha: 0.14) : Palette.surface,
-        borderRadius: BorderRadius.circular(99),
-      ),
+      decoration: BoxDecoration(color: on ? c.withValues(alpha: 0.14) : Palette.surface, borderRadius: BorderRadius.circular(99)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           StatusDot(on: on),
           const SizedBox(width: 6),
-          Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c)),
+          Text(
+            text,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: c),
+          ),
         ],
       ),
     );
@@ -176,7 +176,10 @@ class Tile extends StatelessWidget {
         color: color,
         borderRadius: BorderRadius.circular(20),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(padding: padding, child: child),
+        ),
       );
 }
 
@@ -192,17 +195,18 @@ class ScreenRow extends StatelessWidget {
     final s = model.selectedScreen;
     final online = s == null ? null : model.isScreenOnline(s.id);
     final state = online == null ? 'revisando…' : (online ? 'en línea' : 'sin respuesta');
-    final kind = s == null ? '' : (s.isTv ? 'TV · YouTube' : 'Proyector');
+    final kind = s?.kindLabel ?? '';
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(14),
-        onTap: () => showScreensSheet(context, model),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            children: [
-              Expanded(
+      child: Row(
+        children: [
+          // El nombre abre la lista para cambiar de pantalla; el + agrega otra.
+          Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => showScreensSheet(context, model),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -212,8 +216,12 @@ class ScreenRow extends StatelessWidget {
                       children: [
                         if (s != null) ...[StatusDot(on: online == true, size: 10), const SizedBox(width: 10)],
                         Flexible(
-                          child: Text(s?.name ?? 'Elige una pantalla',
-                              maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
+                          child: Text(
+                            s?.name ?? 'Elige una pantalla',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
+                          ),
                         ),
                         const SizedBox(width: 4),
                         const Icon(Icons.expand_more_rounded, color: Palette.text3, size: 28),
@@ -224,9 +232,22 @@ class ScreenRow extends StatelessWidget {
                   ],
                 ),
               ),
-            ],
+            ),
           ),
-        ),
+          const SizedBox(width: 12),
+          Material(
+            color: Palette.surface,
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => showAddScreenSheet(context, model),
+              child: const Tooltip(
+                message: 'Agregar pantalla',
+                child: SizedBox.square(dimension: 48, child: Icon(Icons.add_rounded, color: Palette.text, size: 28)),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

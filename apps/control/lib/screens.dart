@@ -4,8 +4,9 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared/shared.dart';
 
 /// Una pantalla vinculada: un proyector o TV con el receptor instalado
-/// (`kind: receiver`, vinculada por QR) o una TV sin receptor que se controla
-/// por DIAL + YouTube (`kind: tv`, agregada por IP).
+/// (`kind: receiver`, vinculada por QR), una TV sin receptor que se controla
+/// por DIAL + YouTube (`kind: tv`, agregada por IP) o una Roku TV, que se
+/// controla entera por ECP (`kind: roku`).
 class Screen {
   const Screen({
     required this.id,
@@ -19,6 +20,10 @@ class Screen {
   /// TV sin receptor: el id sale de su IP y no hay token.
   factory Screen.tv(String host, {String? name}) =>
       Screen(id: 'tv-$host', name: name ?? 'TV', host: host, port: 56789, token: '', kind: 'tv');
+
+  /// Roku TV: ECP en el puerto 8060, sin token.
+  factory Screen.roku(String host, {String? name}) =>
+      Screen(id: 'roku-$host', name: name ?? 'Roku', host: host, port: 8060, token: '', kind: 'roku');
 
   factory Screen.fromPayload(PairingPayload p) =>
       Screen(id: p.id, name: p.name, host: p.host, port: p.port, token: p.token);
@@ -40,6 +45,13 @@ class Screen {
   final String kind;
 
   bool get isTv => kind == 'tv';
+  bool get isRoku => kind == 'roku';
+
+  /// Tiene nuestro receptor (cola, trading, máscara, Spotify propio).
+  bool get hasReceiver => kind == 'receiver';
+
+  /// "Proyector", "TV · YouTube" o "Roku TV".
+  String get kindLabel => isRoku ? 'Roku TV' : (isTv ? 'TV · YouTube' : 'Proyector');
 
   Map<String, dynamic> toJson() => {'id': id, 'name': name, 'host': host, 'port': port, 'token': token, 'kind': kind};
 

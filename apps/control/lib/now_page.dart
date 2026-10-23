@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -63,7 +65,7 @@ class NowPage extends StatelessWidget {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.end,
                             children: [
-                              if (!screen.isTv)
+                              if (screen.hasReceiver)
                                 TextButton(
                                   onPressed: model.rediscovering ? null : () => model.rediscover(screen.id),
                                   child: const Text('Buscar en mi Wi-Fi'),
@@ -87,117 +89,29 @@ class NowPage extends StatelessWidget {
                   ],
                   if (empty)
                     _EmptyCard(model: model, onSearch: onSearch)
-                  else
-                    _NowRow(model: model),
-                  const SizedBox(height: 12),
-                  if (!empty && model.loggedIn && model.track != null && !model.showingTrack && model.projectorOnline) ...[
-                    SizedBox(
-                      height: 52,
-                      child: FilledButton.icon(
-                        onPressed: model.busy ? null : model.send,
-                        icon: model.busy
-                            ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                            : const Icon(Icons.cast_rounded),
-                        label: Text('Enviar el video a ${screen?.name ?? 'la pantalla'}',
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis),
-                        style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
+                  else ...[
+                    _Hero(model: model),
+                    const SizedBox(height: 14),
+                    _TitleBlock(model: model),
                   ],
-                  _Controls(model: model, dimmed: empty),
+                  const SizedBox(height: 18),
+                  _Transport(model: model, dimmed: empty),
                   if (model.projectorOnline && model.volume != null) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
                     VolumeControl(model: model),
                   ],
-                  const SizedBox(height: 12),
-                  _FollowTile(model: model),
+                  const SizedBox(height: 14),
+                  _Chips(model: model, empty: empty),
                   if (model.error != null) ...[
                     const SizedBox(height: 12),
                     Notice(model.error!, error: true),
-                  ] else if (model.status != null && !model.statusIsSend) ...[
-                    const SizedBox(height: 12),
-                    Notice(model.status!),
                   ],
-                  if (model.candidates.length > 1 && !empty)
-                    Theme(
-                      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                      child: ExpansionTile(
-                        tilePadding: EdgeInsets.zero,
-                        childrenPadding: EdgeInsets.zero,
-                        title: Text('¿No es el video correcto? (${model.candidates.length - 1})',
-                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                        children: [
-                          for (final c in model.candidates.skip(1))
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: Cover(url: c.video.thumbnailUrl, width: 96, height: 54, radius: 10, icon: Icons.smart_display_rounded),
-                              title: Text(c.video.title, maxLines: 2, overflow: TextOverflow.ellipsis),
-                              subtitle: Text(c.video.channel, style: const TextStyle(color: Palette.text2)),
-                              onTap: model.busy ? null : () => model.sendVideo(c.video),
-                            ),
-                        ],
-                      ),
-                    ),
                 ],
               ),
             ),
           ],
         );
       },
-    );
-  }
-}
-
-/// Lo que suena, compacto: portada, título, artista y si se ve en la pantalla.
-class _NowRow extends StatelessWidget {
-  const _NowRow({required this.model});
-
-  final ControlModel model;
-
-  @override
-  Widget build(BuildContext context) {
-    final mode = model.projectorMode;
-    final video = model.projectorOnline ? model.screenMediaTitle : null;
-    final screen = model.selectedScreen?.name ?? 'la pantalla';
-    final t = model.track;
-    final (String title, String? subtitle, String? art) = switch (mode) {
-      ProjectorMode.queue => (video ?? 'Buscando el video…', model.screenQueueInfo, null),
-      ProjectorMode.spotify => (t!.title, t.artist, t.artUrl),
-      ProjectorMode.free => (video ?? 'Nada sonando', 'En $screen', null),
-    };
-    final live = mode == ProjectorMode.spotify ? model.showingTrack : video != null;
-    return Tile(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        children: [
-          Cover(url: art, width: 60, icon: mode == ProjectorMode.queue ? Icons.queue_music_rounded : Icons.album_rounded),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, height: 1.2)),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 2),
-                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, color: Palette.text2)),
-                ],
-                if (mode == ProjectorMode.spotify && model.projectorOnline) ...[
-                  const SizedBox(height: 6),
-                  LiveChip(
-                    live ? 'En $screen' : (model.followingSpotify ? 'Esperando canción' : 'No en $screen'),
-                    on: live,
-                  ),
-                ],
-              ],
-            ),
-          ),
-          if (mode != ProjectorMode.spotify) ...[
-            const SizedBox(width: 10),
-            StatusDot(on: live, size: 10),
-          ],
-        ],
-      ),
     );
   }
 }
@@ -279,9 +193,161 @@ class _BigButton extends StatelessWidget {
   }
 }
 
-/// Botones grandes: pausar/reanudar arriba a todo lo ancho; siguiente y detener abajo.
-class _Controls extends StatelessWidget {
-  const _Controls({required this.model, required this.dimmed});
+/// Lo que se ve en la pantalla, en 16:9: la miniatura del video mandado, la
+/// portada de Spotify sobre su propio fondo difuminado, o un ícono. Encima, si
+/// está en la pantalla o, si no, el botón para mandarlo.
+class _Hero extends StatelessWidget {
+  const _Hero({required this.model});
+
+  final ControlModel model;
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = model.projectorMode;
+    final video = model.projectorOnline ? model.screenMediaTitle : null;
+    final screen = model.selectedScreen?.name ?? 'la pantalla';
+    final t = model.track;
+    final sent = model.lastSentVideo;
+    // La miniatura solo si ese video es el que está sonando (si no, engañaría).
+    final thumb = switch (mode) {
+      ProjectorMode.spotify => t != null && model.isSentTrack(t) ? sent?.thumbnailUrl : null,
+      ProjectorMode.free => sent != null && video != null && _sameTitle(sent.title, video) ? sent.thumbnailUrl : null,
+      ProjectorMode.queue => null,
+    };
+    final art = mode == ProjectorMode.spotify ? t?.artUrl : null;
+    final live = mode == ProjectorMode.spotify ? model.showingTrack : video != null;
+    final sendable = mode == ProjectorMode.spotify && model.loggedIn && t != null && !model.showingTrack && model.projectorOnline;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: AspectRatio(
+        aspectRatio: 16 / 9,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _HeroImage(thumb: thumb, art: art, icon: mode == ProjectorMode.queue ? Icons.queue_music_rounded : Icons.smart_display_rounded),
+            if (sendable) ...[
+              ColoredBox(color: Palette.bg.withValues(alpha: 0.62)),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('No está en $screen', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: model.busy ? null : model.send,
+                    icon: model.busy
+                        ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.cast_rounded, size: 20),
+                    label: const Text('Enviar el video', style: TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ],
+              ),
+            ] else if (model.projectorOnline)
+              Positioned(
+                left: 12,
+                top: 12,
+                child: DecoratedBox(
+                  // Fondo oscuro para que el chip se lea sobre cualquier imagen.
+                  decoration: BoxDecoration(color: Palette.bg.withValues(alpha: 0.8), borderRadius: BorderRadius.circular(99)),
+                  child: LiveChip(
+                    live ? 'En $screen' : (mode == ProjectorMode.spotify && model.followingSpotify ? 'Esperando canción' : 'No en $screen'),
+                    on: live,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// El título de la sesión de medios de YouTube casi siempre es el del video;
+  /// basta con que empiecen igual.
+  static bool _sameTitle(String a, String b) {
+    String norm(String x) => x.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+    final na = norm(a), nb = norm(b);
+    final n = [na.length, nb.length, 16].reduce((x, y) => x < y ? x : y);
+    return n > 0 && na.substring(0, n) == nb.substring(0, n);
+  }
+}
+
+class _HeroImage extends StatelessWidget {
+  const _HeroImage({required this.thumb, required this.art, required this.icon});
+
+  final String? thumb;
+  final String? art;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget placeholder() => ColoredBox(color: Palette.surface2, child: Icon(icon, size: 48, color: Palette.text3));
+    final t = thumb, a = art;
+    if (t != null) return Image.network(t, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder());
+    if (a == null) return placeholder();
+    // Portada cuadrada: ella misma, difuminada, de fondo.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+          child: Image.network(a, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder()),
+        ),
+        ColoredBox(color: Palette.bg.withValues(alpha: 0.35)),
+        Center(
+          child: FractionallySizedBox(
+            heightFactor: 0.78,
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.network(a, fit: BoxFit.cover, errorBuilder: (_, _, _) => placeholder()),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Título y artista (o la cola) centrados debajo de la imagen.
+class _TitleBlock extends StatelessWidget {
+  const _TitleBlock({required this.model});
+
+  final ControlModel model;
+
+  @override
+  Widget build(BuildContext context) {
+    final video = model.projectorOnline ? model.screenMediaTitle : null;
+    final screen = model.selectedScreen?.name ?? 'la pantalla';
+    final t = model.track;
+    final (String title, String? subtitle) = switch (model.projectorMode) {
+      ProjectorMode.queue => (video ?? 'Buscando el video…', model.screenQueueInfo),
+      ProjectorMode.spotify => (t!.title, t.artist),
+      ProjectorMode.free => (video ?? 'Nada sonando', 'En $screen'),
+    };
+    return Column(
+      children: [
+        Text(title,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, height: 1.2)),
+        if (subtitle != null) ...[
+          const SizedBox(height: 2),
+          Text(subtitle,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, color: Palette.text2)),
+        ],
+      ],
+    );
+  }
+}
+
+/// Detener · pausar/reanudar · siguiente, en una fila de botones redondos.
+class _Transport extends StatelessWidget {
+  const _Transport({required this.model, required this.dimmed});
 
   final ControlModel model;
   final bool dimmed;
@@ -296,73 +362,56 @@ class _Controls extends StatelessWidget {
     final playing = model.isPlaying;
     return Opacity(
       opacity: dimmed ? 0.4 : 1,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          if (!dimmed) ...[
-            _Pad(
-              height: 150,
-              primary: true,
-              icon: playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-              iconSize: 56,
-              label: playing ? 'Pausar' : 'Reanudar',
-              onTap: canPlay ? model.togglePlay : null,
-            ),
-            const SizedBox(height: 12),
-          ],
-          Row(
-            children: [
-              Expanded(
-                child: dimmed
-                    ? _Pad(height: 96, icon: Icons.play_arrow_rounded, label: 'Reanudar', onTap: canPlay ? model.togglePlay : null)
-                    : _Pad(height: 96, icon: Icons.skip_next_rounded, label: 'Siguiente', onTap: canSkip ? model.skip : null),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: _Pad(height: 96, icon: Icons.stop_rounded, label: 'Detener', onTap: canStop ? model.stopAll : null)),
-            ],
+          _Round(icon: Icons.stop_rounded, tooltip: 'Detener', onTap: canStop ? model.stopAll : null),
+          const SizedBox(width: 28),
+          _Round(
+            icon: playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            tooltip: playing ? 'Pausar' : 'Reanudar',
+            size: 76,
+            iconSize: 42,
+            primary: true,
+            onTap: canPlay ? model.togglePlay : null,
           ),
+          const SizedBox(width: 28),
+          _Round(icon: Icons.skip_next_rounded, tooltip: 'Siguiente', onTap: canSkip ? model.skip : null),
         ],
       ),
     );
   }
 }
 
-class _Pad extends StatelessWidget {
-  const _Pad({required this.height, required this.icon, required this.label, this.onTap, this.primary = false, this.iconSize = 32});
+class _Round extends StatelessWidget {
+  const _Round({required this.icon, required this.tooltip, this.onTap, this.size = 52, this.iconSize = 30, this.primary = false});
 
-  final double height;
   final IconData icon;
-  final String label;
+  final String tooltip;
   final VoidCallback? onTap;
-  final bool primary;
+  final double size;
   final double iconSize;
+  final bool primary;
 
   @override
   Widget build(BuildContext context) {
-    final fg = primary ? Palette.onAccent : Palette.text2;
-    return Material(
-      color: primary ? Palette.accent : Palette.surface,
-      borderRadius: BorderRadius.circular(22),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(22),
-        onTap: onTap,
-        child: SizedBox(
-          height: height,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: iconSize, color: primary ? fg : Palette.text),
-              const SizedBox(height: 6),
-              Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: fg)),
-            ],
-          ),
+    final fg = onTap == null ? Palette.text3 : (primary ? Palette.onAccent : Palette.text);
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: primary ? Palette.accent : Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox.square(dimension: size, child: Icon(icon, size: iconSize, color: fg)),
         ),
       ),
     );
   }
 }
 
-/// Volumen: − / deslizador (se aplica al soltar) / +, y silenciar tocando la bocina.
+/// Volumen en una línea: bocina (silenciar) / deslizador (se aplica al soltar) / nivel.
 class VolumeControl extends StatefulWidget {
   const VolumeControl({super.key, required this.model});
 
@@ -379,115 +428,162 @@ class _VolumeControlState extends State<VolumeControl> {
   Widget build(BuildContext context) {
     final v = widget.model.volume!;
     final value = _dragging ?? v.level.toDouble();
-    Widget round(IconData icon, VoidCallback onTap) => Material(
-          color: Palette.surface2,
-          shape: const CircleBorder(),
-          child: InkWell(customBorder: const CircleBorder(), onTap: onTap, child: SizedBox.square(dimension: 44, child: Icon(icon, color: Palette.text))),
-        );
-    return Tile(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-      child: Row(
-        children: [
-          round(Icons.remove_rounded, () => widget.model.changeVolume(delta: -1)),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Row(
-                    children: [
-                      GestureDetector(
-                        onTap: () => widget.model.changeVolume(mute: !v.muted),
-                        child: Row(
-                          children: [
-                            Icon(v.muted ? Icons.volume_off_rounded : Icons.volume_up_rounded, size: 18, color: Palette.text3),
-                            const SizedBox(width: 6),
-                            SectionLabel(widget.model.selectedScreen?.isTv ?? false ? 'Volumen de YouTube' : 'Volumen'),
-                          ],
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(v.muted ? 'silencio' : '${value.round()}',
-                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Palette.text2)),
-                    ],
-                  ),
-                ),
-                Slider(
-                  value: value.clamp(0, v.max.toDouble()),
-                  max: v.max.toDouble(),
-                  divisions: v.max,
-                  onChanged: (x) => setState(() => _dragging = x),
-                  onChangeEnd: (x) async {
-                    await widget.model.changeVolume(level: x.round());
-                    if (mounted) setState(() => _dragging = null);
-                  },
-                ),
-              ],
-            ),
+    return Row(
+      children: [
+        IconButton(
+          tooltip: v.muted ? 'Quitar silencio' : 'Silenciar',
+          onPressed: () => widget.model.changeVolume(mute: !v.muted),
+          icon: Icon(v.muted ? Icons.volume_off_rounded : Icons.volume_mute_rounded, size: 22, color: Palette.text3),
+        ),
+        Expanded(
+          child: Slider(
+            value: value.clamp(0, v.max.toDouble()),
+            max: v.max.toDouble(),
+            divisions: v.max,
+            onChanged: (x) => setState(() => _dragging = x),
+            onChangeEnd: (x) async {
+              await widget.model.changeVolume(level: x.round());
+              if (mounted) setState(() => _dragging = null);
+            },
           ),
-          const SizedBox(width: 6),
-          round(Icons.add_rounded, () => widget.model.changeVolume(delta: 1)),
-        ],
-      ),
+        ),
+        SizedBox(
+          width: 40,
+          child: Text(v.muted ? '—' : '${value.round()}',
+              textAlign: TextAlign.center, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Palette.text2)),
+        ),
+      ],
     );
   }
 }
 
-/// "Seguir a Spotify": el proyector con sesión propia lo hace solo; si no, el
-/// teléfono con la app abierta.
-class _FollowTile extends StatelessWidget {
-  const _FollowTile({required this.model});
+/// Chips debajo de los controles: "Seguir a Spotify" (prendido/apagado) y
+/// "Otro video", que abre las otras opciones de YouTube.
+class _Chips extends StatelessWidget {
+  const _Chips({required this.model, required this.empty});
 
   final ControlModel model;
+  final bool empty;
 
   @override
   Widget build(BuildContext context) {
     final screen = model.selectedScreen;
-    if (!model.loggedIn || (!model.screenChecked && screen != null)) return const SizedBox.shrink();
+    final canFollow = model.loggedIn && (model.screenChecked || screen == null);
     final own = model.screenSpotifyLinked;
-    final who = screen?.isTv ?? false ? 'La TV' : 'El proyector';
+    final following = own ? model.screenFollowing : model.autoFollow;
+    final others = empty ? 0 : model.candidates.length - 1;
+    if (!canFollow && others <= 0) return const SizedBox.shrink();
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Tile(
-          padding: const EdgeInsets.fromLTRB(16, 10, 10, 10),
-          child: Row(
-            children: [
-              const Icon(Icons.sync_rounded, color: Palette.accent),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Seguir a Spotify', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-                    Text(own ? '$who cambia el video solo' : '$who cambia el video (con esta app abierta)',
-                        style: const TextStyle(fontSize: 13, color: Palette.text2)),
-                  ],
-                ),
+        Wrap(
+          alignment: WrapAlignment.center,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            if (canFollow)
+              _ChipButton(
+                icon: Icons.sync_rounded,
+                label: following ? 'Siguiendo Spotify' : 'Seguir a Spotify',
+                // Sin sesión propia, el que cambia el video es este teléfono.
+                detail: own ? null : 'con esta app abierta',
+                on: following,
+                onTap: own
+                    ? (model.busy ? null : () => model.setScreenFollowing(!following))
+                    : () => model.setAutoFollow(!following),
               ),
-              Switch(
-                value: own ? model.screenFollowing : model.autoFollow,
-                onChanged: own ? (model.busy ? null : model.setScreenFollowing) : model.setAutoFollow,
-              ),
-            ],
-          ),
+            if (others > 0)
+              _ChipButton(icon: Icons.video_library_outlined, label: 'Otro video ($others)', onTap: () => _showOtherVideos(context, model)),
+          ],
         ),
         // Un proyector con receptor puede seguir a Spotify por su cuenta; la TV no.
-        if (!own && model.projectorOnline && !(screen?.isTv ?? false))
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: TextButton.icon(
-              onPressed: model.busy ? null : model.linkSpotifyToScreen,
-              icon: const Icon(Icons.link_rounded, size: 18),
-              label: const Text('Que el proyector siga a Spotify aunque guardes el teléfono'),
-            ),
+        if (canFollow && !own && model.projectorOnline && (screen?.hasReceiver ?? false))
+          TextButton.icon(
+            onPressed: model.busy ? null : model.linkSpotifyToScreen,
+            icon: const Icon(Icons.link_rounded, size: 18),
+            label: const Text('Que el proyector siga a Spotify aunque guardes el teléfono'),
           ),
       ],
     );
   }
 }
+
+class _ChipButton extends StatelessWidget {
+  const _ChipButton({required this.icon, required this.label, this.detail, this.onTap, this.on = false});
+
+  final IconData icon;
+  final String label;
+
+  /// Segunda línea chica debajo de [label].
+  final String? detail;
+  final VoidCallback? onTap;
+  final bool on;
+
+  @override
+  Widget build(BuildContext context) {
+    // Verde "en vivo", como el chip "En <pantalla>": está haciendo algo.
+    final fg = on ? Palette.live : Palette.text2;
+    return Material(
+      color: on ? Palette.live.withValues(alpha: 0.16) : Palette.surface,
+      borderRadius: BorderRadius.circular(22),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: onTap,
+        child: Container(
+          // Misma altura con o sin segunda línea.
+          constraints: const BoxConstraints(minHeight: 52),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 18, color: fg),
+              const SizedBox(width: 8),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: fg)),
+                  if (detail != null)
+                    Text(detail!, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: fg.withValues(alpha: 0.75))),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "¿No es el video correcto?": las otras opciones de YouTube en una hoja.
+Future<void> _showOtherVideos(BuildContext context, ControlModel model) => showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
+          child: ListView(
+            shrinkWrap: true,
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            children: [
+              const Text('¿No es el video correcto?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              for (final c in model.candidates.skip(1))
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Cover(url: c.video.thumbnailUrl, width: 96, height: 54, radius: 10, icon: Icons.smart_display_rounded),
+                  title: Text(c.video.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  subtitle: Text(c.video.channel, style: const TextStyle(color: Palette.text2)),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    model.sendVideo(c.video);
+                  },
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
 
 class _ConnectSpotify extends StatelessWidget {
   const _ConnectSpotify({required this.model});
@@ -541,7 +637,7 @@ class PairCallToAction extends StatelessWidget {
               style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
             ),
           ),
-          TextButton(onPressed: () => showScreensSheet(context, model), child: const Text('Más opciones')),
+          TextButton(onPressed: () => showAddScreenSheet(context, model), child: const Text('Más opciones')),
         ],
       ),
     );

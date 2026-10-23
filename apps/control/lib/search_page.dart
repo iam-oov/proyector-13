@@ -91,11 +91,17 @@ class _SearchPageState extends State<SearchPage> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
               child: Row(
+                // El micrófono se queda arriba mientras el campo crece.
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _controller,
                       enabled: !working,
+                      // Crece hacia abajo para que una frase larga del asistente se lea completa.
+                      minLines: 1,
+                      maxLines: 5,
+                      keyboardType: TextInputType.text,
                       textInputAction: TextInputAction.search,
                       onSubmitted: model.search,
                       style: const TextStyle(fontSize: 16),

@@ -94,6 +94,20 @@ class ProjectorClient {
     );
   }
 
+  /// Avisa que este teléfono borró la pantalla: sale de "Conectado: …", suelta
+  /// Spotify y corta la cola. Los receptores viejos no tienen /unpair (404).
+  Future<void> unpair(String phoneName) async {
+    final r = await http
+        .post(
+          _url('/unpair'),
+          headers: {'content-type': 'application/json', ..._auth},
+          body: jsonEncode({'phoneName': phoneName}),
+        )
+        .timeout(const Duration(seconds: 4));
+    if (r.statusCode == 401) throw const ProjectorUnauthorized();
+    if (r.statusCode != 200) throw StateError('Pantalla ${r.statusCode}: ${r.body}');
+  }
+
   /// Manda la bitácora y/o pide mostrar las estadísticas. Devuelve dónde quedaron:
   /// `home` (el inicio al frente) u `overlay` (tarjeta encima del video).
   Future<String> trading({bool? show, bool? overlay, List<Trade>? trades}) async {

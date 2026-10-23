@@ -5,6 +5,10 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- Micrófono: para pedirle cosas al asistente de voz. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Temporizador de apagado ("apágala en 30 min"): alarma exacta aunque la app esté cerrada. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- usesCleartextTraffic: el receptor del proyector es HTTP plano en la LAN. -->
     <application
         android:label="Proyector"
@@ -33,6 +37,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- android_alarm_manager_plus: el servicio que corre la alarma del temporizador. -->
+        <service
+            android:name="dev.fluttercommunity.plus.androidalarmmanager.AlarmService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="false"/>
+        <receiver
+            android:name="dev.fluttercommunity.plus.androidalarmmanager.AlarmBroadcastReceiver"
+            android:exported="false"/>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

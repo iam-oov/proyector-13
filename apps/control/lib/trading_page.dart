@@ -37,7 +37,7 @@ class _TradingPageState extends State<TradingPage> {
       builder: (context, _) {
         final s = model.tradingStats;
         final screen = model.selectedScreen;
-        final isTv = screen?.isTv ?? false;
+        final isTv = !(screen?.hasReceiver ?? true);
         final canShow = !model.busy && model.projectorOnline && !isTv;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -250,10 +250,13 @@ class _PositionTile extends StatelessWidget {
                   ),
                 ])),
                 const SizedBox(height: 4),
+                // Todo como "Título: $N"; la compra es la del primer movimiento.
                 Text(
-                  'Entrada ${money(p.avgEntry, sign: false)} · ${q == null ? 'sin precio' : 'ahora ${money(q.price, sign: false)}'}'
-                  '${day == null ? '' : ' · hoy ${money(day)}'}',
-                  style: const TextStyle(fontSize: 13, color: Palette.text2, fontFeatures: tab),
+                  'Compra: ${_date(p.trades.map((t) => t.openedAt).reduce((a, b) => a.isBefore(b) ? a : b))}'
+                  ' · Entrada: ${money(p.avgEntry, sign: false)}\n'
+                  'Ahora: ${q == null ? 'sin precio' : money(q.price, sign: false)}'
+                  '${day == null ? '' : ' · Hoy: ${money(day)}'}',
+                  style: const TextStyle(fontSize: 13, height: 1.35, color: Palette.text2, fontFeatures: tab),
                 ),
               ],
             ),

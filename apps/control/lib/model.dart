@@ -5,9 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:shared/shared.dart';
 
 import 'assistant.dart';
+import 'catalog.dart';
 import 'config.dart';
 import 'projector.dart';
+import 'roku.dart';
 import 'screens.dart';
+import 'sleep_timer.dart';
 import 'spotify.dart';
 import 'spotify_auth.dart';
 import 'trading_store.dart';
@@ -37,7 +40,17 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   bool busy = false;
   Track? track;
   List<RankedVideo> candidates = [];
-  String? status;
+
+  /// Aviso pasajero: la app lo muestra como toast de 3 s ([statusSeq] cambia con
+  /// cada aviso nuevo, aunque el texto se repita).
+  String? get status => _status;
+  set status(String? value) {
+    _status = value;
+    if (value != null) statusSeq++;
+  }
+
+  String? _status;
+  int statusSeq = 0;
   String? error;
   Timer? _poll;
 
@@ -114,7 +127,11 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _checkOthers() async {
     await Future.wait([
       for (final s in screens.where((s) => s.id != selectedScreenId))
-        (s.isTv ? TvClient(s).status().then((st) => st != null) : ProjectorClient(s).health().then((h) => h?.id == s.id))
+        (s.isRoku
+                ? RokuClient(s).info().then((i) => i != null)
+                : s.isTv
+                    ? TvClient(s).status().then((st) => st != null)
+                    : ProjectorClient(s).health().then((h) => h?.id == s.id))
             .then((on) => _online[s.id] = on),
     ]);
   }
@@ -126,6 +143,34 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       projectorOnline = false;
       screenIdMismatch = false;
       screenChecked = false;
+      screenSpotifyLinked = false;
+      screenFollowing = false;
+      screenQueueInfo = null;
+      screenMediaTitle = null;
+      screenMediaPlaying = false;
+      volume = null;
+    } else if (s.isRoku) {
+      // Roku: responde aunque esté "apagada" en espera rápida. Lo que suena es la app al frente.
+      final info = await RokuClient(s).info();
+      screenIdMismatch = false;
+      projectorOnline = info != null;
+      rokuPowerOn = info?.powerOn ?? false;
+      screenSpotifyLinked = false;
+      screenFollowing = false;
+      screenQueueInfo = null;
+      final app = info == null ? null : await RokuClient(s).activeApp();
+      screenMediaTitle = app?.name;
+      screenMediaPlaying = app != null;
+      screenChecked = true;
+      // Volumen: la Roku no lo dice; queda el último que puso la app.
+      if (info == null) volume = null;
+      if (info != null && (rokuApps.isEmpty || _ticks % 100 == 0)) {
+        try {
+          rokuApps = await RokuClient(s).apps();
+        } catch (_) {
+          // Sin "Acceso a la red": las teclas tampoco van a entrar; se avisa al mandar algo.
+        }
+      }
     } else if (s.isTv) {
       // TV sin receptor: solo se sabe si YouTube está abierto.
       final st = await TvClient(s).status();
@@ -277,6 +322,37 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     await _tick();
   }
 
+  /// La Roku elegida está encendida con imagen (en espera sigue respondiendo).
+  bool rokuPowerOn = false;
+
+  /// Apps y entradas de la Roku elegida (para "abre Spotify", "pon el PlayStation").
+  List<RokuApp> rokuApps = [];
+
+  /// Rokus encontradas en el Wi-Fi del teléfono (SSDP).
+  Future<List<RokuFound>> discoverRokus() => RokuClient.discover();
+
+  /// Agrega una Roku TV por su IP, si responde por ECP.
+  Future<void> addRoku(String host, {String? name}) => _run(() async {
+        final h = host.trim();
+        final info = await RokuClient(Screen.roku(h)).info();
+        if (info == null) throw StateError('$h no responde como Roku: revisa la IP y que esté prendida (o en espera rápida)');
+        final n = name?.trim().isEmpty ?? true ? (info.name.isEmpty ? 'Roku' : info.name) : name!.trim();
+        final screen = Screen.roku(h, name: n);
+        final i = screens.indexWhere((s) => s.id == screen.id);
+        if (i >= 0) {
+          screens[i] = screen;
+        } else {
+          screens.add(screen);
+        }
+        selectedScreenId = screen.id;
+        rokuApps = [];
+        await _persistScreens();
+        status = info.acceptsKeys
+            ? 'Roku "$n" guardada'
+            : 'Roku "$n" guardada. Para que acepte órdenes: en la TV, Configuración → Sistema → Configuración avanzada → Control por aplicaciones móviles → Acceso a la red → Permisivo';
+        await _tick();
+      });
+
   /// Agrega una TV sin receptor por su IP, si responde a DIAL con YouTube.
   Future<void> addTv(String host, {String? name}) => _run(() async {
         final h = host.trim();
@@ -308,7 +384,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   /// POST /pair: la pantalla muestra "Conectado: `nombre`". Si falla, no pasa nada.
   Future<void> _announce(Screen s) async {
     final name = phoneName;
-    if (name == null || s.isTv) return;
+    if (name == null || !s.hasReceiver) return;
     try {
       final r = await ProjectorClient(s).pair(name);
       if (r.name != s.name) await _updateScreen(s.copyWith(name: r.name));
@@ -328,7 +404,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   /// Las TVs no tienen id: para ellas solo sirve [changeAddress].
   Future<bool> rediscover(String id) async {
     final i = screens.indexWhere((s) => s.id == id);
-    if (i < 0 || screens[i].isTv || rediscovering) return false;
+    if (i < 0 || !screens[i].hasReceiver || rediscovering) return false;
     final s = screens[i];
     rediscovering = true;
     _lastRediscover[id] = DateTime.now();
@@ -358,9 +434,12 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
             return null;
           }
         }));
+        // La pantalla se borró mientras se buscaba: ya no hay nada que avisar.
+        if (!screens.any((x) => x.id == id)) return false;
         for (final h in open.whereType<String>()) {
           answered++;
           final health = await ProjectorClient(s.copyWith(host: h)).health();
+          if (!screens.any((x) => x.id == id)) return false;
           if (health?.id == s.id) {
             await _updateScreen(s.copyWith(host: h));
             status = '${s.name} cambió de IP: ahora es $h';
@@ -370,6 +449,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
           }
         }
       }
+      if (!screens.any((x) => x.id == id)) return false;
       status = 'No encontré a ${s.name}: busqué en ${prefixes.map((p) => '$p.x').join(' y ')} '
           '($answered con el puerto ${s.port} abierto)';
       return false;
@@ -389,7 +469,14 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
         final host = parts.first.replaceAll(RegExp(r'[^0-9.]'), '');
         final port = parts.length > 1 ? int.tryParse(parts[1]) ?? s.port : s.port;
         if (!RegExp(r'^\d{1,3}(\.\d{1,3}){3}$').hasMatch(host)) throw StateError('"$address" no es una IP válida');
-        if (s.isTv) {
+        if (s.isRoku) {
+          final roku = Screen.roku(host, name: s.name);
+          if (await RokuClient(roku).info() == null) throw StateError('En $host no responde una Roku');
+          // El id de la Roku sale de su IP: se reemplaza la entrada.
+          screens[i] = roku;
+          if (selectedScreenId == id) selectedScreenId = roku.id;
+          await _persistScreens();
+        } else if (s.isTv) {
           final tv = Screen.tv(host, name: s.name);
           if (await TvClient(tv).status() == null) throw StateError('En $host no responde una TV con YouTube');
           // El id de la TV sale de su IP: se reemplaza la entrada.
@@ -430,7 +517,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     final i = screens.indexWhere((s) => s.id == id);
     if (i < 0 || n.isEmpty) return;
     var finalName = n;
-    if (id == selectedScreenId && projectorOnline && !screens[i].isTv) {
+    if (id == selectedScreenId && projectorOnline && screens[i].hasReceiver) {
       try {
         final r = await ProjectorClient(screens[i]).pair(phoneName ?? 'Teléfono', screenName: n);
         finalName = r.name;
@@ -441,8 +528,34 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     await _updateScreen(screens[i].copyWith(name: finalName));
   }
 
+  /// Desvincula la pantalla: al proyector se le quita la sesión de Spotify y se
+  /// corta su cola (si no, sigue la música de este teléfono por su cuenta) y
+  /// después se borra el token, así que para volver a usarla hay que escanear su QR.
   Future<void> removeScreen(String id) async {
-    screens.removeWhere((s) => s.id == id);
+    final i = screens.indexWhere((s) => s.id == id);
+    if (i < 0) return;
+    final s = screens[i];
+    var reached = true;
+    if (s.hasReceiver) {
+      final client = ProjectorClient(s);
+      // /unpair además lo quita de "Conectado: …"; Spotify y la cola van aparte
+      // por si el receptor es viejo y no lo tiene. Tope de 4 s: si el proyector
+      // está apagado, "Eliminar" no se queda colgado.
+      final results = await Future.wait([
+        client.spotify(unlink: true).then((_) => true, onError: (_) => false),
+        client.queue(stop: true).then((_) => true, onError: (_) => false),
+        if (phoneName != null) client.unpair(phoneName!).then((_) => true, onError: (_) => true),
+      ]).timeout(const Duration(seconds: 4), onTimeout: () => [false]);
+      reached = results.every((ok) => ok);
+    }
+    screens.removeAt(i);
+    _online.remove(id);
+    _announced.remove(id);
+    _lastRediscover.remove(id);
+    status = reached
+        ? '${s.name} desvinculada: para volver a usarla escanea su QR'
+        : 'Borré ${s.name}, pero no respondió: si seguía a Spotify, lo sigue. Apágalo en el proyector con "Dejar de seguir a Spotify" '
+            'o, cuando prenda, escanea su QR y elimínalo otra vez';
     if (selectedScreenId == id) {
       selectedScreenId = screens.isEmpty ? null : screens.first.id;
       projectorOnline = false;
@@ -512,7 +625,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
       _run(() async {
         final s = selectedScreen;
         if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
-        if (s.isTv) throw StateError('Aleatorio todavía no funciona en TVs: toca una canción para mandarla');
+        if (!s.hasReceiver) throw StateError('Aleatorio todavía no funciona en TVs: toca una canción para mandarla');
         status = 'Armando la cola…';
         notifyListeners();
         final info = await ProjectorClient(s).queue(tracks: tracks, name: name, shuffle: shuffle, startAt: startAt);
@@ -561,6 +674,9 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   bool isSentTrack(Track t) => _sentKey == '${t.artist}|${t.title}';
   String? lastSentVideoId;
 
+  /// El último video mandado (para su miniatura en Ahora).
+  VideoCandidate? lastSentVideo;
+
   /// El status es solo el aviso de "enviado": la pestaña Ahora ya lo muestra
   /// en la tarjeta y no lo repite (Buscar y Playlists sí, en su SnackBar).
   bool get statusIsSend => status != null && status == _sendStatus;
@@ -576,7 +692,9 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
           track = Track(title: t.title, artists: t.artists, isPlaying: !playing, album: t.album, artUrl: t.artUrl);
         }
         if (s != null && projectorOnline && screenMediaTitle != null) {
-          if (s.isTv) {
+          if (s.isRoku) {
+            await RokuClient(s).key('Play'); // la misma tecla pausa y reanuda
+          } else if (s.isTv) {
             playing ? await TvClient(s).pause() : await TvClient(s).resume();
           } else {
             await ProjectorClient(s).media(playing ? 'pause' : 'play');
@@ -589,7 +707,10 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   /// en modo Spotify salta la canción y el proyector la sigue en unos segundos.
   Future<void> skip() => _run(() async {
         final s = selectedScreen;
-        if (projectorMode == ProjectorMode.queue && s != null) {
+        if (s != null && s.isRoku && projectorMode != ProjectorMode.spotify) {
+          await RokuClient(s).key('Fwd'); // en la Roku "siguiente" es avanzar
+          status = 'Adelantando en ${s.name}';
+        } else if (projectorMode == ProjectorMode.queue && s != null) {
           status = 'Buscando la siguiente…';
           notifyListeners();
           final info = await ProjectorClient(s).queue(next: true);
@@ -610,7 +731,13 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
           track = Track(title: t.title, artists: t.artists, isPlaying: false, album: t.album, artUrl: t.artUrl);
         }
         if (s != null && projectorOnline && (screenMediaTitle != null || screenQueueInfo != null)) {
-          s.isTv ? await TvClient(s).pause() : await ProjectorClient(s).media('stop');
+          if (s.isRoku) {
+            await RokuClient(s).key('Home');
+          } else if (s.isTv) {
+            await TvClient(s).pause();
+          } else {
+            await ProjectorClient(s).media('stop');
+          }
           screenQueueInfo = null;
           screenMediaPlaying = false;
         }
@@ -631,8 +758,9 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   String? assistantHeard;
 
   /// "Quiero poner música para la playa" → Claude entiende, busca en YouTube,
-  /// elige el video adecuado y lo manda a la pantalla elegida. También controla
-  /// (pausa, siguiente, volumen) y cambia de pantalla.
+  /// elige el video adecuado y lo manda a la pantalla elegida. Una frase puede
+  /// traer varias acciones ("pon Stranger Things a volumen 8 y apaga en 30 min"):
+  /// se hacen en orden y se cuenta qué se hizo y qué no se pudo.
   Future<void> runAssistant(String said) async {
     final text = said.trim();
     if (text.isEmpty || assistantStep != null) return;
@@ -643,35 +771,20 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final intent = await _assistant.understand(text, _assistantContext());
-      switch (intent.action) {
-        case 'play':
-          if (selectedScreen == null) throw StateError('Primero elige una pantalla');
-          assistantStep = 'Buscando en YouTube…';
-          notifyListeners();
-          final videos = await searchYouTubeWeb(intent.searchQuery, max: 8);
-          if (videos.isEmpty) throw StateError('YouTube no encontró nada para "${intent.searchQuery}"');
-          assistantStep = 'Eligiendo el video…';
-          notifyListeners();
-          final pick = await _assistant.pick(text, intent, videos);
-          searchResults = [videos[pick.index], for (final (i, v) in videos.indexed) if (i != pick.index) v];
-          searchFromAssistant = true;
-          assistantStep = 'Enviando…';
-          notifyListeners();
-          candidates = [];
-          await _play(videos[pick.index], start: intent.startSeconds > 0 ? intent.startSeconds : null);
-          assistantReply = pick.reply.isEmpty ? intent.reply : pick.reply;
-        case 'control':
-          await _assistantControl(intent);
-          assistantReply = intent.reply;
-        case 'switch_screen':
-          final q = intent.screen.toLowerCase();
-          final match = screens.where((s) => s.name.toLowerCase().contains(q) || q.contains(s.name.toLowerCase())).firstOrNull;
-          if (match == null || q.isEmpty) throw StateError('No encontré la pantalla "${intent.screen}"');
-          await selectScreen(match.id);
-          assistantReply = intent.reply.isEmpty ? 'Ahora en ${match.name}' : intent.reply;
-        default:
-          assistantReply = intent.reply.isEmpty ? 'No entendí. Prueba "pon música para la playa".' : intent.reply;
+      if (intent.actions.isEmpty) throw StateError('No entendí. Prueba "pon música para la playa".');
+      final done = <String>[];
+      final failed = <String>[];
+      for (final a in intent.actions) {
+        try {
+          final r = await _assistantAction(text, a);
+          if (r != null) done.add(r);
+        } catch (e) {
+          failed.add(_msg(e));
+        }
       }
+      if (done.isEmpty && failed.length == 1) throw StateError(failed.first);
+      final reply = intent.actions.length == 1 && done.isNotEmpty ? done.first : intent.reply;
+      assistantReply = failed.isEmpty ? reply : '$reply. No pude: ${failed.join('; ')}';
     } catch (e) {
       error = _msg(e);
     } finally {
@@ -680,20 +793,146 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Hace una acción y devuelve su confirmación (null si no hay nada que decir).
+  Future<String?> _assistantAction(String said, AssistantAction a) async {
+    switch (a.action) {
+      case 'play':
+        if (selectedScreen == null) throw StateError('Primero elige una pantalla');
+        assistantStep = 'Buscando en YouTube…';
+        notifyListeners();
+        final videos = await searchYouTubeWeb(a.searchQuery, max: 8);
+        if (videos.isEmpty) throw StateError('YouTube no encontró nada para "${a.searchQuery}"');
+        assistantStep = 'Eligiendo el video…';
+        notifyListeners();
+        final pick = await _assistant.pick(said, a, videos);
+        searchResults = [videos[pick.index], for (final (i, v) in videos.indexed) if (i != pick.index) v];
+        searchFromAssistant = true;
+        assistantStep = 'Enviando…';
+        notifyListeners();
+        candidates = [];
+        await _play(videos[pick.index], start: a.startSeconds > 0 ? a.startSeconds : null);
+        return pick.reply;
+      case 'play_title':
+        return _playTitle(said, a);
+      case 'control':
+        assistantStep = 'Controlando…';
+        notifyListeners();
+        await _assistantControl(a);
+        return null;
+      case 'switch_screen':
+        final q = a.screen.toLowerCase();
+        final match = screens.where((s) => s.name.toLowerCase().contains(q) || q.contains(s.name.toLowerCase())).firstOrNull;
+        if (match == null || q.isEmpty) throw StateError('No encontré la pantalla "${a.screen}"');
+        await selectScreen(match.id);
+        return 'Ahora en ${match.name}';
+      case 'power':
+        // Solo la Roku se apaga de verdad; el proyector solo quedaría en negro.
+        final s = _roku('prender o apagar');
+        assistantStep = a.on ? 'Prendiendo…' : 'Apagando…';
+        notifyListeners();
+        a.on ? await RokuClient(s).powerOn() : await RokuClient(s).powerOff();
+        if (!a.on) await SleepTimer.cancel();
+        return a.on ? 'Prendo ${s.name}' : 'Apago ${s.name}';
+      case 'sleep_timer':
+        final s = selectedScreen;
+        if (s == null) throw StateError('Primero elige una pantalla');
+        if (a.minutes == 0) {
+          await SleepTimer.cancel();
+          return 'Temporizador cancelado';
+        }
+        final exact = await SleepTimer.schedule(s, Duration(minutes: a.minutes));
+        return '${s.isRoku ? 'Apago' : 'Detengo'} ${s.name} en ${a.minutes} min${exact ? '' : ' (si la app sigue abierta)'}';
+      case 'open':
+        final s = _roku('abrir apps o cambiar de entrada');
+        if (rokuApps.isEmpty) rokuApps = await RokuClient(s).apps();
+        final q = a.app.toLowerCase();
+        final app = rokuApps.where((x) => x.name.toLowerCase().contains(q) || q.contains(x.name.toLowerCase())).firstOrNull;
+        if (app == null || q.isEmpty) throw StateError('En ${s.name} no hay "${a.app}"');
+        await RokuClient(s).launch(app.id);
+        return '${app.isInput ? 'Cambio a' : 'Abro'} ${app.name}';
+      case 'brightness':
+        throw StateError('El brillo todavía no se puede desde la app');
+      default:
+        throw StateError('No entendí. Prueba "pon música para la playa".');
+    }
+  }
+
+  /// La Roku elegida, o un error claro de por qué no se puede.
+  Screen _roku(String what) {
+    final s = selectedScreen;
+    if (s == null) throw StateError('Primero elige una pantalla');
+    if (!s.isRoku) throw StateError('${s.name} no es una Roku: $what solo se puede en las Roku');
+    return s;
+  }
+
+  final _catalog = Catalog();
+
+  /// Serie o película en un servicio: busca el título en el catálogo, Claude
+  /// elige cuál es y la Roku abre la app directo en él.
+  Future<String> _playTitle(String said, AssistantAction a) async {
+    final s = _roku('ver series y películas');
+    assistantStep = 'Buscando "${a.title}"…';
+    notifyListeners();
+    final titles = await _catalog.search(a.title);
+    if (titles.isEmpty) throw StateError('No encontré "${a.title}" en el catálogo');
+    assistantStep = 'Eligiendo…';
+    notifyListeners();
+    final pick = await _assistant.pickTitle(said, a, [for (final t in titles) t.toString()]);
+    if (pick.index < 0) throw StateError('No encontré "${a.title}" en ningún servicio');
+    final t = titles[pick.index];
+    // El servicio pedido; si no dijo, el primero que lo tenga (en este orden).
+    const order = ['netflix', 'disneyplus', 'prime', 'hbomax', 'appletv', 'crunchyroll', 'vix'];
+    final provider = a.provider != 'any' && a.provider != 'youtube'
+        ? a.provider
+        : order.where(t.offers.containsKey).firstOrNull;
+    final appId = provider == null ? null : RokuClient.appIds[provider];
+    if (provider == null || appId == null) throw StateError('"${t.title}" no está en ningún servicio de ${s.name}');
+    final id = t.offers[provider];
+    assistantStep = 'Abriendo en ${_providerName(provider)}…';
+    notifyListeners();
+    if (id == null) {
+      // Está en otro servicio, no en el pedido: se abre la app para buscarlo a mano.
+      await RokuClient(s).launch(appId);
+      throw StateError('"${t.title}" no está en ${_providerName(provider)}; abrí la app para que lo busques');
+    }
+    await RokuClient(s).launch(appId, contentId: id, mediaType: t.mediaType);
+    screenMediaTitle = t.title;
+    return pick.reply.isEmpty ? 'Pongo ${t.title} en ${_providerName(provider)}' : pick.reply;
+  }
+
+  static String _providerName(String p) => const {
+        'netflix': 'Netflix',
+        'disneyplus': 'Disney+',
+        'prime': 'Prime Video',
+        'hbomax': 'HBO Max',
+        'appletv': 'Apple TV',
+        'crunchyroll': 'Crunchyroll',
+        'vix': 'ViX',
+      }[p] ?? p;
+
   String _assistantContext() {
     final list = [
       for (final s in screens)
-        '- ${s.name} (${s.isTv ? 'TV' : 'proyector'}'
+        '- ${s.name} (${s.isRoku ? 'Roku' : s.isTv ? 'TV' : 'proyector'}'
             '${s.id == selectedScreenId ? ', elegida' : ''}'
             '${isScreenOnline(s.id) == false ? ', no responde' : ''})',
     ].join('\n');
     final t = track;
     final playing = screenMediaTitle != null ? 'En la pantalla elegida suena: $screenMediaTitle' : 'En la pantalla elegida no suena nada';
-    return 'Pantallas:\n${list.isEmpty ? '(ninguna)' : list}\n$playing'
+    final s = selectedScreen;
+    final apps = s != null && s.isRoku && rokuApps.isNotEmpty
+        ? '\nApps y entradas de ${s.name}: ${rokuApps.map((x) => x.name).join(', ')}'
+        : '';
+    final sleep = SleepTimer.at == null ? '' : '\nTemporizador: se apaga ${SleepTimer.screenName} a las ${_hhmm(SleepTimer.at!)}';
+    final v = volume;
+    final vol = v == null ? '' : '\nVolumen: ${v.muted ? 'en silencio' : '${v.level} de ${v.max}'}';
+    return 'Pantallas:\n${list.isEmpty ? '(ninguna)' : list}\n$playing$apps$sleep$vol'
         '${t == null ? '' : '\nEn Spotify: ${t.title} — ${t.artist}'}';
   }
 
-  Future<void> _assistantControl(AssistantIntent i) async {
+  static String _hhmm(DateTime d) => '${d.hour}:${d.minute.toString().padLeft(2, '0')}';
+
+  Future<void> _assistantControl(AssistantAction i) async {
     final s = selectedScreen;
     if (s == null) throw StateError('Primero elige una pantalla');
     // _run apaga busy y guarda el error; aquí solo se necesita la acción.
@@ -706,13 +945,17 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
         await skip();
       case 'stop':
         await stopAll();
-      case 'volume_up':
-        await changeVolume(delta: 2);
-      case 'volume_down':
-        await changeVolume(delta: -2);
+      case 'volume_up' || 'volume_down':
+        // Pasos que dijo ("súbele 3"); si no dijo, 2.
+        final steps = (i.volume > 0 ? i.volume : 2) * (i.control == 'volume_up' ? 1 : -1);
+        final v = volume;
+        // El proyector sube de a uno por llamada: mejor poner el nivel de una vez.
+        s.hasReceiver && v != null
+            ? await changeVolume(level: (v.level + steps).clamp(0, v.max))
+            : await changeVolume(delta: steps);
       case 'volume_set':
         final v = volume;
-        await changeVolume(level: v == null ? i.volume : (i.volume * v.max / 100).round());
+        await changeVolume(level: v == null || s.isRoku ? i.volume : (i.volume * v.max / 100).round());
       case 'seek_forward':
         await seekVideo(by: i.seconds);
       case 'seek_back':
@@ -826,7 +1069,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> showTradingOnProjector(bool show) => _run(() async {
         final s = selectedScreen;
         if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
-        if (s.isTv) throw StateError('${s.name} no tiene el receptor: el tablero solo va en los proyectores');
+        if (!s.hasReceiver) throw StateError('${s.name} no tiene el receptor: el tablero solo va en los proyectores');
         final mode = await ProjectorClient(s).trading(show: show, trades: trades);
         tradingOverlay = mode == 'overlay';
         tradingOnProjector = show;
@@ -840,7 +1083,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> hideTradingOverlay() => _run(() async {
         final s = selectedScreen;
-        if (s == null || s.isTv) return;
+        if (s == null || !s.hasReceiver) return;
         await ProjectorClient(s).trading(overlay: false);
         tradingOverlay = false;
         status = 'Video en grande otra vez';
@@ -853,6 +1096,31 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> changeVolume({int? level, int? delta, bool? mute}) async {
     final s = selectedScreen;
     if (s == null) return;
+    if (s.isRoku) {
+      // La Roku no dice su volumen: se lleva aquí el último que puso la app (0..100,
+      // de uno en uno). Poner un nivel exacto baja a 0 y sube: unos 10 s.
+      final cur = volume;
+      try {
+        if (mute != null) {
+          if ((cur?.muted ?? false) != mute) await RokuClient(s).key('VolumeMute');
+          volume = (level: cur?.level ?? 0, max: 100, muted: mute);
+        } else if (level != null) {
+          status = 'Poniendo el volumen de ${s.name} en $level…';
+          notifyListeners();
+          await RokuClient(s).setVolume(level);
+          volume = (level: level.clamp(0, 100), max: 100, muted: false);
+        } else {
+          final steps = (delta ?? 0) * 5;
+          await RokuClient(s).nudgeVolume(steps);
+          volume = cur == null ? null : (level: (cur.level + steps).clamp(0, 100), max: 100, muted: false);
+        }
+        error = null;
+      } catch (e) {
+        error = _msg(e);
+      }
+      notifyListeners();
+      return;
+    }
     if (s.isTv) {
       // Volumen de YouTube 0..100 en pasos de 5.
       final cur = volume ?? (level: 50, max: 100, muted: false);
@@ -882,7 +1150,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   /// Si el tablero está en el proyector, cada cambio se refleja allá.
   Future<void> _pushTrading() async {
     final s = selectedScreen;
-    if (s == null || !projectorOnline || s.isTv) return;
+    if (s == null || !projectorOnline || !s.hasReceiver) return;
     try {
       await ProjectorClient(s).trading(trades: trades);
     } catch (_) {
@@ -917,6 +1185,7 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<int> seekVideo({int? to, int? by}) async {
     final s = selectedScreen;
     if (s == null) throw StateError('Primero elige una pantalla');
+    if (s.isRoku) throw StateError('En la Roku no se puede adelantar por red; usa pausa o siguiente');
     return s.isTv ? TvClient(s).seek(to: to, by: by) : ProjectorClient(s).seek(to: to, by: by);
   }
 
@@ -925,12 +1194,16 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     if (s == null) throw StateError('No hay pantalla: escanea el QR del proyector');
     status = 'Enviando a ${s.name}…';
     notifyListeners();
-    if (s.isTv) {
+    if (s.isRoku) {
+      // YouTube en la Roku abre el video; el minuto de inicio no lo entiende.
+      await RokuClient(s).youtube(video.id);
+    } else if (s.isTv) {
       await TvClient(s).play(video.id, start: start);
     } else {
       await ProjectorClient(s).play(video, start: start);
     }
     lastSentVideoId = video.id;
+    lastSentVideo = video;
     status = _sendStatus = 'En ${s.name}: ${video.title}';
   }
 

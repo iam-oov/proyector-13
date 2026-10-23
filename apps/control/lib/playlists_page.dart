@@ -336,15 +336,12 @@ class _TracksPageState extends State<TracksPage> {
   Future<void> _queue(BuildContext context, List<Track> tracks, {bool shuffle = false, int startAt = 0}) async {
     final messenger = ScaffoldMessenger.of(context);
     await widget.model.playQueue(tracks, name: widget.playlist.name, shuffle: shuffle, startAt: startAt);
-    _snack(messenger);
+    if (widget.model.error != null) _snack(messenger);
   }
 
+  /// Solo errores: los avisos de que salió bien llegan como toast desde el modelo.
   void _snack(ScaffoldMessengerState messenger) {
-    final model = widget.model;
-    messenger.showSnackBar(SnackBar(
-      content: Text(model.error ?? model.status ?? ''),
-      backgroundColor: model.error == null ? null : Colors.red.shade900,
-    ));
+    messenger.showSnackBar(SnackBar(content: Text(widget.model.error!), backgroundColor: Colors.red.shade900));
   }
 }
 
