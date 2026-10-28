@@ -168,12 +168,13 @@ class Cover extends StatelessWidget {
 
 /// Contenedor de superficie con esquinas de 20.
 class Tile extends StatelessWidget {
-  const Tile({super.key, required this.child, this.padding = const EdgeInsets.all(16), this.color = Palette.surface, this.onTap});
+  const Tile({super.key, required this.child, this.padding = const EdgeInsets.all(16), this.color = Palette.surface, this.onTap, this.onLongPress});
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final Color color;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) => Material(
@@ -182,6 +183,7 @@ class Tile extends StatelessWidget {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
+          onLongPress: onLongPress,
           child: Padding(padding: padding, child: child),
         ),
       );

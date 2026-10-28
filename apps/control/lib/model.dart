@@ -1003,8 +1003,12 @@ class ControlModel extends ChangeNotifier with WidgetsBindingObserver {
     await _saveTrades();
   }
 
-  Future<void> deleteTrade(String id) async {
-    trades = [for (final t in trades) if (t.id != id) t];
+  Future<void> deleteTrade(String id) => deleteTrades({id});
+
+  /// Borra sin vender: para movimientos de prueba o mal capturados. Una
+  /// posición se borra completa (todos sus movimientos) en un solo guardado.
+  Future<void> deleteTrades(Set<String> ids) async {
+    trades = [for (final t in trades) if (!ids.contains(t.id)) t];
     await _saveTrades();
   }
 

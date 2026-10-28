@@ -97,7 +97,11 @@ class _TradingPageState extends State<TradingPage> {
                       if (s.positions.isEmpty)
                         const Text('Ninguna. Registra tu primer movimiento.', style: TextStyle(color: Palette.text3)),
                       for (final p in s.positions) ...[
-                        _PositionTile(position: p, onClose: () => _closePosition(context, p)),
+                        _PositionTile(
+                          position: p,
+                          onClose: () => _closePosition(context, p),
+                          onDelete: () => _confirmDeletePosition(context, p),
+                        ),
                         const SizedBox(height: 8),
                       ],
                       if (s.closedTrades.isNotEmpty) ...[
@@ -145,10 +149,12 @@ class _TradingPageState extends State<TradingPage> {
 
   /// Cierra todos los trades de la posición al mismo precio de salida.
   Future<void> _closePosition(BuildContext context, Position p) async {
+    var delete = false;
     final result = await showDialog<({double price, DateTime at})>(
       context: context,
-      builder: (_) => _CloseDialog(position: p),
+      builder: (_) => _CloseDialog(position: p, onDelete: () => delete = true),
     );
+    if (delete && context.mounted) return _confirmDeletePosition(context, p);
     if (result == null) return;
     for (final t in p.trades) {
       await widget.model.closeTrade(t.id, exitPrice: result.price, at: result.at);
@@ -168,6 +174,28 @@ class _TradingPageState extends State<TradingPage> {
       ),
     );
     if (ok == true) await widget.model.deleteTrade(t.id);
+  }
+
+  /// Borra la posición sin venderla: no cuenta como realizado.
+  Future<void> _confirmDeletePosition(BuildContext context, Position p) async {
+    final n = p.trades.length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('¿Borrar ${p.symbol}?'),
+        content: Text('${qtyText(p.qty)} acc. · entrada ${money(p.avgEntry, sign: false)}\n'
+            '${n == 1 ? 'Se borra sin venderla' : 'Se borran sus $n movimientos sin venderlos'}: no cuenta en el P&L.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: Palette.danger),
+            child: const Text('Borrar'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) await widget.model.deleteTrades({for (final t in p.trades) t.id});
   }
 }
 
@@ -234,10 +262,13 @@ class _StatsHeader extends StatelessWidget {
 }
 
 class _PositionTile extends StatelessWidget {
-  const _PositionTile({required this.position, required this.onClose});
+  const _PositionTile({required this.position, required this.onClose, required this.onDelete});
 
   final Position position;
   final VoidCallback onClose;
+
+  /// Mantener presionado, igual que en los cerrados.
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -248,6 +279,7 @@ class _PositionTile extends StatelessWidget {
     return Tile(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       onTap: onClose,
+      onLongPress: onDelete,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -426,9 +458,12 @@ class _TradeDialogState extends State<_TradeDialog> {
 }
 
 class _CloseDialog extends StatefulWidget {
-  const _CloseDialog({required this.position});
+  const _CloseDialog({required this.position, required this.onDelete});
 
   final Position position;
+
+  /// "Borrar" cierra este diálogo y pide confirmación aparte.
+  final VoidCallback onDelete;
 
   @override
   State<_CloseDialog> createState() => _CloseDialogState();
@@ -449,7 +484,18 @@ class _CloseDialogState extends State<_CloseDialog> {
   Widget build(BuildContext context) {
     final p = widget.position;
     return AlertDialog(
-      title: Text('Cerrar ${p.symbol}'),
+      // Cancelar es la tachita de arriba a la derecha.
+      title: Row(
+        children: [
+          Expanded(child: Text('Cerrar ${p.symbol}')),
+          IconButton(
+            tooltip: 'Cancelar',
+            visualDensity: VisualDensity.compact,
+            onPressed: () => Navigator.of(context).pop(),
+            icon: const Icon(Icons.close_rounded, color: Palette.text2),
+          ),
+        ],
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -466,18 +512,39 @@ class _CloseDialogState extends State<_CloseDialog> {
           if (_error != null) Text(_error!, style: const TextStyle(color: Colors.redAccent)),
         ],
       ),
+      // "Cerrar posición" es la acción principal: a todo lo ancho, como los
+      // botones grandes de la pestaña; el bote de basura queda a su izquierda.
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancelar')),
-        FilledButton(
-          onPressed: () {
-            final price = double.tryParse(_price.text.replaceAll(',', '.'));
-            if (price == null || price <= 0) {
-              setState(() => _error = 'Precio inválido');
-              return;
-            }
-            Navigator.of(context).pop((price: price, at: _at));
-          },
-          child: const Text('Cerrar posición'),
+        Row(
+          children: [
+            IconButton(
+              tooltip: 'Borrar',
+              onPressed: () {
+                widget.onDelete();
+                Navigator.of(context).pop();
+              },
+              icon: const Icon(Icons.delete_outline_rounded, color: Palette.danger),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SizedBox(
+                height: 52,
+                child: FilledButton.icon(
+                  onPressed: () {
+                    final price = double.tryParse(_price.text.replaceAll(',', '.'));
+                    if (price == null || price <= 0) {
+                      setState(() => _error = 'Precio inválido');
+                      return;
+                    }
+                    Navigator.of(context).pop((price: price, at: _at));
+                  },
+                  icon: const Icon(Icons.sell_rounded),
+                  label: const Text('Cerrar posición', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                  style: FilledButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );
