@@ -40,6 +40,10 @@ class ReceiverServer {
   final Future<void> Function()? onTradingChanged;
   Timer? _addressTimer;
 
+  /// The full route pipeline, also used by [RelayClient] to answer requests
+  /// that arrive through valdoh.com instead of the LAN. Null until [start].
+  Handler? handler;
+
   Future<void> start() async {
     final router = Router()
       ..get('/health', _health)
@@ -53,7 +57,7 @@ class ReceiverServer {
       ..post('/media', _auth(_media))
       ..get('/volume', _auth(_getVolume))
       ..post('/volume', _auth(_setVolume));
-    final handler = const Pipeline()
+    final handler = this.handler = const Pipeline()
         .addMiddleware(_cors())
         .addHandler(router.call);
     await shelf_io.serve(handler, InternetAddress.anyIPv4, port);

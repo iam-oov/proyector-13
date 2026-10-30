@@ -1,0 +1,106 @@
+name: Deploy relay
+
+# Push-based deploy of apps/relay (relay + PWA at valdoh.com/proyector) to the
+# home server over SSH THROUGH the Cloudflare Tunnel. Same mechanism as
+# iam-oov/valdoh.com-page's deploy.yml, with the same secrets:
+#   CF_ACCESS_CLIENT_ID     - Cloudflare Access service token client ID
+#   CF_ACCESS_CLIENT_SECRET - Cloudflare Access service token client secret
+#   PI_SSH_USER             - SSH user on the server (memodi; checkout at ~/proyector-13)
+#   PI_SSH_KEY              - private SSH key authorized for PI_SSH_USER
+#
+# One-time server setup: apps/relay/deploy/setup.sh.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - apps/relay/**
+      - .github/workflows/deploy-relay.yml
+  workflow_dispatch:
+
+# A restart drops every projector's socket for a few seconds; never run two at once.
+concurrency:
+  group: deploy-relay
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/relay
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+      - run: uv python install 3.15
+      - run: uv sync --frozen
+      - run: uv run pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install cloudflared
+        run: |
+          curl -fsSL -o cloudflared.deb \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.PI_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+
+      # A service token cloudflared does not accept makes it fall back to the
+      # interactive browser login, which hangs on a runner. Check the shape
+      # first: lengths and suffixes are not secret, the values are.
+      - name: Check Access service token shape
+        env:
+          CF_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          echo "client id:     ${#CF_ID} chars"
+          echo "client secret: ${#CF_SECRET} chars"
+          case "$CF_ID" in
+            *' '*|*:*) echo "::error::client id still carries the CF-Access-Client-Id header prefix"; exit 1 ;;
+          esac
+          case "$CF_SECRET" in
+            *' '*|*:*) echo "::error::client secret still carries the CF-Access-Client-Secret header prefix"; exit 1 ;;
+          esac
+          case "$CF_ID" in *.access) ;; *) echo "::error::client id does not end in .access"; exit 1 ;; esac
+
+      - name: Deploy through the tunnel
+        env:
+          TUNNEL_SERVICE_TOKEN_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          TUNNEL_SERVICE_TOKEN_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        # BatchMode + timeout: a rejected token sends cloudflared into its
+        # browser login and the job would hang until the 6 h cap.
+        run: |
+          timeout 300 ssh -i ~/.ssh/id_deploy \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o StrictHostKeyChecking=accept-new \
+            -o "ProxyCommand=cloudflared access ssh --hostname %h" \
+            "${{ secrets.PI_SSH_USER }}@pi.valdoh.com" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd ~/proyector-13
+          git fetch origin main
+          git reset --hard origin/main
+          SHA=$(git rev-parse --short HEAD)
+
+          cd apps/relay
+          ~/.local/bin/uv sync --frozen --no-dev
+          sudo /usr/bin/systemctl restart proyector-relay
+
+          # The relay reports the checkout's SHA, so this proves the new code
+          # is the one answering, not just that something answers.
+          for _ in $(seq 1 20); do
+            V=$(curl -fsS http://127.0.0.1:8090/proyector/version.json 2>/dev/null || true)
+            case "$V" in *"\"$SHA\""*) echo "Deploy verified: $V"; exit 0 ;; esac
+            sleep 1
+          done
+          echo "DEPLOY FAILED: relay is not serving $SHA (got: ${V:-nothing})"
+          systemctl status proyector-relay --no-pager || true
+          exit 1
+          REMOTE

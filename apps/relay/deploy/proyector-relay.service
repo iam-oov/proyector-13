@@ -1,0 +1,18 @@
+[Unit]
+Description=Proyector relay (valdoh.com/proyector)
+After=network.target
+
+[Service]
+Type=simple
+User=memodi
+WorkingDirectory=/home/memodi/proyector-13/apps/relay
+# Outside the checkout: the deploy's `git reset --hard` must not touch it.
+Environment=RELAY_STATE_DIR=/home/memodi/.local/state/proyector-relay
+Environment=RELAY_HOST=127.0.0.1
+Environment=RELAY_PORT=8090
+ExecStart=/home/memodi/proyector-13/apps/relay/.venv/bin/python relay.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -8,6 +8,7 @@ import 'home_screen.dart';
 import 'identity.dart';
 import 'mask.dart';
 import 'queue.dart';
+import 'relay.dart';
 import 'server.dart';
 import 'spotify_follow.dart';
 import 'stats_overlay.dart';
@@ -56,16 +57,20 @@ Future<void> main() async {
     },
     onPause: () => state.appInForeground = false,
   );
-  ReceiverServer(
+  final server = ReceiverServer(
     state,
     onTradingChanged: trading.onChanged,
     mask: mask,
     spotify: spotify,
     stats: stats,
     queue: queue,
-  ).start().catchError((Object e) {
+  );
+  server.start().catchError((Object e) {
     state.add('No pude abrir el puerto ${state.port}: $e', error: true);
   });
+  // Reachable from valdoh.com/proyector too; retries on its own if the relay
+  // or the internet is down, so it never blocks startup.
+  RelayClient(state, server).start();
   runApp(ProyectorApp(state: state));
 }
 

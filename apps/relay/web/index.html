@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proyector</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #121116; color: #ece9f5; font: 16px/1.5 system-ui, sans-serif; }
+    main { padding: 24px; text-align: center; }
+    small { color: #8f8a9e; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Proyector</h1>
+    <p>La app web está en construcción.</p>
+    <small id="v"></small>
+  </main>
+  <script>
+    fetch('version.json').then(r => r.json()).then(j => {
+      document.getElementById('v').textContent = `versión ${j.version} · ${j.projectors} proyector(es) en línea`;
+    }).catch(() => {});
+  </script>
+</body>
+</html>

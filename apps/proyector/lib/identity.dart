@@ -22,12 +22,16 @@ Future<String?> appFilesDir() async {
 /// Se guarda en `identity.json` dentro de la carpeta privada de la app
 /// (sin plugins: shared_preferences tronaba en este proyector con R8).
 class ReceiverIdentity {
-  ReceiverIdentity._(this._file, this.id, this.token, this._name, this.phones);
+  ReceiverIdentity._(this._file, this.id, this.token, this._name, this.phones, this.relayKey);
 
   final File? _file;
   String id;
   String token;
   String _name;
+
+  /// Proves to the relay (valdoh.com/proyector) that this projector owns its
+  /// id. Never shown in the QR, and kept when the pairing code is regenerated.
+  final String relayKey;
 
   /// Nombres de los teléfonos que han hecho POST /pair (máximo 20).
   final List<String> phones;
@@ -46,13 +50,18 @@ class ReceiverIdentity {
           final phones = [
             for (final p in (j['phones'] as List?) ?? const []) p.toString(),
           ];
-          return ReceiverIdentity._(
+          final relayKey = j['relayKey'] as String?;
+          final identity = ReceiverIdentity._(
             file,
             id,
             token,
             (j['name'] as String?) ?? 'Proyector',
             phones,
+            relayKey ?? randomUrlSafe(43),
           );
+          // Identities saved before the relay existed get their key now.
+          if (relayKey == null) await identity._save();
+          return identity;
         }
       } catch (_) {
         // Archivo corrupto: se genera una identidad nueva.
@@ -64,6 +73,7 @@ class ReceiverIdentity {
       randomUrlSafe(32),
       'Proyector',
       [],
+      randomUrlSafe(43),
     );
     await identity._save();
     return identity;
@@ -77,6 +87,7 @@ class ReceiverIdentity {
     randomUrlSafe(32),
     'Proyector',
     [],
+    randomUrlSafe(43),
   );
 
   Future<void> rename(String name) async {
@@ -123,7 +134,7 @@ class ReceiverIdentity {
     // Escritura atómica: primero un temporal y luego rename.
     final tmp = File('${f.path}.tmp');
     await tmp.writeAsString(
-      jsonEncode({'id': id, 'token': token, 'name': _name, 'phones': phones}),
+      jsonEncode({'id': id, 'token': token, 'name': _name, 'phones': phones, 'relayKey': relayKey}),
       flush: true,
     );
     await tmp.rename(f.path);

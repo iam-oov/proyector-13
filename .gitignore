@@ -23,3 +23,8 @@ tools/.spotify-token.json
 
 # macOS
 .DS_Store
+
+# Python (apps/relay)
+**/.venv/
+**/__pycache__/
+**/.pytest_cache/
