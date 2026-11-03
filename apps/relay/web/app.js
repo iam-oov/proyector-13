@@ -223,6 +223,83 @@ function addFromText(text) {
   }
 }
 
+// The 6-digit code the projector shows on its pairing panel. The relay finds
+// the projector showing it and hands back the same id/token as the QR.
+
+let redeeming = false;
+
+function openCodeSheet() {
+  $('code-input').value = '';
+  $('code-error').hidden = true;
+  $('link-box').hidden = true;
+  $('link-toggle').hidden = false;
+  $('paste-input').value = '';
+  openSheet('sheet-paste');
+  // Synchronously, inside the tap: iOS only raises the keyboard then.
+  $('code-input').focus();
+}
+
+function codeError(text) {
+  $('code-error').textContent = text;
+  $('code-error').hidden = false;
+}
+
+async function redeemCode() {
+  const code = $('code-input').value.replace(/\D/g, '');
+  if (redeeming) return;
+  if (code.length !== 6) {
+    codeError('Son 6 números');
+    return;
+  }
+  redeeming = true;
+  $('code-add').disabled = true;
+  $('code-add').textContent = 'Buscando…';
+  $('code-error').hidden = true;
+  try {
+    const res = await fetch('api/code', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code }),
+      cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      codeError(data.error || 'No pude revisar el código, intenta otra vez');
+      return;
+    }
+    const payload = { id: data.id, token: data.token, name: String(data.name || 'Proyector').slice(0, 40) };
+    if (!validProjector(payload)) {
+      codeError('El proyector contestó algo raro: actualízalo');
+      return;
+    }
+    $('code-input').blur();
+    addProjector(payload);
+  } catch {
+    codeError('Sin conexión a internet');
+  } finally {
+    redeeming = false;
+    $('code-add').disabled = false;
+    $('code-add').textContent = 'Agregar';
+  }
+}
+
+$('code-input').addEventListener('input', () => {
+  const el = $('code-input');
+  const digits = el.value.replace(/\D/g, '').slice(0, 6);
+  if (el.value !== digits) el.value = digits;
+  $('code-error').hidden = true;
+  if (digits.length === 6) redeemCode();
+});
+$('code-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  redeemCode();
+});
+$('link-toggle').addEventListener('click', () => {
+  $('link-toggle').hidden = true;
+  $('link-box').hidden = false;
+  $('paste-input').focus();
+});
+
 $('paste-add').addEventListener('click', () => addFromText($('paste-input').value));
 $('paste-clipboard').addEventListener('click', async () => {
   try {
@@ -425,10 +502,8 @@ document.addEventListener('click', (e) => {
   else if (el.dataset.volume) changeVolume(el.dataset.volume);
   else if (el.dataset.tab) setTab(el.dataset.tab);
   else if (el.dataset.action === 'scan') openScanner();
-  else if (el.dataset.action === 'paste') {
-    $('paste-input').value = '';
-    openSheet('sheet-paste');
-  } else if (el.dataset.action === 'rename-phone') askPhoneName(null);
+  else if (el.dataset.action === 'paste') openCodeSheet();
+  else if (el.dataset.action === 'rename-phone') askPhoneName(null);
 });
 
 // ---------------------------------------------------------------------------

@@ -113,6 +113,58 @@ async def test_index_names_its_version(aiohttp_client, tmp_path, monkeypatch):
     assert '<meta name="app-version" content="abc1234">' in html
 
 
+PAIRING = b'{"ok":true,"id":"aknx93pfcuwu","name":"ProyectorBasico","token":"Qm5y1xk2Qm5y1xk2Qm5y1xk2"}'
+
+
+async def test_short_code_roundtrip(client):
+    ws = await connect(client)
+    await ws.receive_json()
+    await ws.send_json({"type": "code", "code": "482913"})
+    await asyncio.sleep(0.05)
+    # Spaces and dashes typed by the user are fine.
+    call = asyncio.create_task(client.post("/proyector/api/code", json={"code": "482 913"}))
+    req = await serve_one(ws, body=PAIRING)
+    res = await call
+    assert res.status == 200
+    assert (await res.json())["token"] == "Qm5y1xk2Qm5y1xk2Qm5y1xk2"
+    assert req["method"] == "POST" and req["path"] == "/code"
+    assert base64.b64decode(req["body"]) == b'{"code": "482913"}'
+
+
+async def test_short_code_unknown_cleared_and_on_disconnect(client):
+    ws = await connect(client)
+    await ws.receive_json()
+    assert (await client.post("/proyector/api/code", json={"code": "111111"})).status == 404
+    assert (await client.post("/proyector/api/code", json={"code": "12"})).status == 400
+    await ws.send_json({"type": "code", "code": "482913"})
+    await ws.send_json({"type": "code", "code": "555555"})
+    await asyncio.sleep(0.05)
+    # The old code is gone once the projector shows a new one.
+    assert (await client.post("/proyector/api/code", json={"code": "482913"})).status == 404
+    await ws.close()
+    await asyncio.sleep(0.05)
+    assert (await client.post("/proyector/api/code", json={"code": "555555"})).status == 404
+
+
+async def test_replaced_socket_keeps_successor_code(client):
+    old = await connect(client)
+    await old.receive_json()
+    await old.send_json({"type": "code", "code": "482913"})
+    new = await connect(client)
+    await new.receive_json()
+    await new.send_json({"type": "code", "code": "482913"})
+    await old.receive()
+    await asyncio.sleep(0.05)
+    call = asyncio.create_task(client.post("/proyector/api/code", json={"code": "482913"}))
+    await serve_one(new, body=PAIRING)
+    assert (await call).status == 200
+
+
+async def test_short_code_rate_limit(client):
+    codes = [(await client.post("/proyector/api/code", json={"code": "000000"})).status for _ in range(6)]
+    assert codes == [404] * 5 + [429]
+
+
 def fake_searcher(results):
     calls = []
 

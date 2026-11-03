@@ -94,6 +94,8 @@ class Projector:
         self.name = name
         self.ws = ws
         self.pending: dict[str, asyncio.Future] = {}
+        # The short pairing code it is showing, if any.
+        self.code: str | None = None
 
     async def request(self, method: str, path: str, query: str, headers: dict, body: bytes) -> dict:
         rid = secrets.token_hex(8)
@@ -214,11 +216,66 @@ async def _projector_ws(request: web.Request) -> web.WebSocketResponse:
                 continue
             if data.get("type") == "res":
                 me.resolve(data)
+            elif data.get("type") == "code":
+                _set_code(request.app[CODES], me, data.get("code"))
     finally:
         if projectors.get(pid) is me:
             del projectors[pid]
+        _set_code(request.app[CODES], me, None)
         me.fail_all()
     return ws
+
+
+# --- Short pairing code ---------------------------------------------------
+#
+# While "Vincular teléfono" is on screen the projector shows a 6-digit code
+# and tells the relay over its WebSocket ({"type":"code","code":"482913"} or
+# null). A phone types it in the PWA; the relay only routes by it and asks
+# that projector, which checks the code itself (one use, short life, rotates
+# after misses) and answers the same id/name/token the QR carries.
+
+CODE_RE = re.compile(r"^\d{6}$")
+# Misses never reach the projector, so this per-IP limit is what stops
+# guessing through the relay.
+CODE_RATE = 5
+CODE_RATE_WINDOW = 60.0
+
+
+def _set_code(codes: dict, projector: Projector, code: object) -> None:
+    # Compare objects, not ids: a replaced socket must not drop the code its
+    # successor registered.
+    if projector.code and codes.get(projector.code) is projector:
+        del codes[projector.code]
+    projector.code = code if isinstance(code, str) and CODE_RE.match(code) else None
+    if projector.code:
+        codes[projector.code] = projector
+
+
+@routes.post(PREFIX + "/api/code")
+async def _redeem_code(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+    except ValueError:
+        data = None
+    raw = data.get("code") if isinstance(data, dict) else None
+    code = re.sub(r"\D", "", str(raw or ""))
+    if not CODE_RE.match(code):
+        return _error(400, "Escribe los 6 números que salen en el proyector")
+    who = request.headers.get("cf-connecting-ip") or request.remote or "?"
+    if not request.app[CODE_LIMIT].allow(who):
+        return _error(429, "Demasiados intentos. Espera un minuto.")
+    projector = request.app[CODES].get(code)
+    if projector is None:
+        return _error(404, "Ese código no existe o ya caducó. Revisa que el proyector siga en Vincular teléfono.")
+    try:
+        res = await projector.request(
+            "POST", "/code", "", {"content-type": "application/json"}, json.dumps({"code": code}).encode(),
+        )
+    except asyncio.TimeoutError:
+        return _error(504, "El proyector no contestó a tiempo")
+    except ConnectionError:
+        return _error(503, "El proyector se desconectó")
+    return _reply(res)
 
 
 @routes.route("*", PREFIX + "/api/p/{pid}/{path:.*}")
@@ -242,6 +299,11 @@ async def _forward(request: web.Request) -> web.Response:
         return _error(504, "el proyector no contestó a tiempo")
     except ConnectionError:
         return _error(503, "proyector desconectado")
+    return _reply(res)
+
+
+def _reply(res: dict) -> web.Response:
+    """The projector's answer as an HTTP response."""
     try:
         out = base64.b64decode(res.get("body") or "")
     except ValueError:
@@ -368,6 +430,8 @@ class RateLimiter:
 SEARCHER = web.AppKey("searcher", object)
 SEARCH_CACHE = web.AppKey("search_cache", SearchCache)
 SEARCH_LIMIT = web.AppKey("search_limit", RateLimiter)
+CODES = web.AppKey("codes", dict)
+CODE_LIMIT = web.AppKey("code_limit", RateLimiter)
 
 
 @routes.get(PREFIX + "/api/search")
@@ -414,6 +478,8 @@ def create_app(keys_path: Path | None = None, searcher: Searcher | None = None) 
     app[SEARCHER] = searcher
     app[SEARCH_CACHE] = SearchCache()
     app[SEARCH_LIMIT] = RateLimiter()
+    app[CODES] = {}
+    app[CODE_LIMIT] = RateLimiter(CODE_RATE, CODE_RATE_WINDOW)
     app.cleanup_ctx.append(_http_session)
     app.add_routes(routes)
     # The rest of the PWA's files (js, css, icons, manifest).

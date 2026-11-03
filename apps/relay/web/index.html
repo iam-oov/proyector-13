@@ -31,7 +31,7 @@
       <div class="welcome">
         <img src="icon-180.png" alt="" class="welcome-icon">
         <h1>Controla tu proyector</h1>
-        <p>En el proyector abre <b>Vincular teléfono</b> (el botón del código QR) y escanéalo desde aquí.</p>
+        <p>En el proyector abre <b>Vincular teléfono</b>. Escanea el QR o escribe los 6 números que salen junto a él.</p>
         <button class="btn primary big" type="button" data-action="scan">Escanear QR</button>
         <button class="btn ghost" type="button" data-action="paste">Tengo un código</button>
       </div>
@@ -116,12 +116,20 @@
   </div>
 
   <div class="sheet" id="sheet-paste" role="dialog" aria-label="Agregar con código" hidden>
-    <h3>Agregar con código</h3>
-    <p>Pega el link o código que te mandaron.</p>
-    <textarea id="paste-input" rows="3" placeholder="https://www.valdoh.com/proyector/#pair?…" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
-    <div class="row-buttons">
-      <button class="btn ghost" type="button" id="paste-clipboard">Pegar</button>
-      <button class="btn primary" type="button" id="paste-add">Agregar</button>
+    <h3>Escribe el código</h3>
+    <p>En el proyector abre <b>Vincular teléfono</b>: junto al QR salen 6 números.</p>
+    <form id="code-form" class="code-form" autocomplete="off">
+      <input id="code-input" class="code-input" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" placeholder="••••••" aria-label="Código de 6 números">
+      <p class="sheet-error" id="code-error" role="alert" hidden></p>
+      <button class="btn primary" type="submit" id="code-add">Agregar</button>
+    </form>
+    <button class="link link-toggle" type="button" id="link-toggle">¿Te mandaron un link? Pégalo aquí</button>
+    <div id="link-box" hidden>
+      <textarea id="paste-input" rows="3" placeholder="https://www.valdoh.com/proyector/#pair?…" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+      <div class="row-buttons">
+        <button class="btn ghost" type="button" id="paste-clipboard">Pegar</button>
+        <button class="btn primary" type="button" id="paste-add">Agregar</button>
+      </div>
     </div>
   </div>
 
