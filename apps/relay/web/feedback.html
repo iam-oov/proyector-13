@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>Buzón · Proyector</title>
+  <link rel="icon" href="icon-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f0f14; --surface: #191820; --surface2: #23222a; --line: #32323b;
+      --text: #f1f1f6; --text2: #b7b6bf; --text3: #8c8b93;
+      --accent: #b89eff; --on-accent: #171226; --danger: #f47b74;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { margin: 0; background: var(--bg); color: var(--text); }
+    body { font: 16px/1.45 Figtree, system-ui, -apple-system, sans-serif; }
+    main { max-width: 640px; margin: 0 auto; padding: calc(env(safe-area-inset-top, 0px) + 32px) 16px 48px; }
+    h1 { margin: 0 0 6px; font-size: 28px; }
+    .sub { margin: 0 0 20px; color: var(--text2); }
+    form { display: flex; gap: 10px; }
+    input {
+      flex: 1; min-width: 0; padding: 14px; border: 0; border-radius: 16px;
+      background: var(--surface2); color: var(--text); font: 700 22px/1 ui-monospace, Menlo, monospace; letter-spacing: .2em;
+    }
+    input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    button { font: inherit; cursor: pointer; }
+    .btn { min-height: 52px; padding: 0 18px; border: 0; border-radius: 16px; background: var(--accent); color: var(--on-accent); font-weight: 700; }
+    .error { color: var(--danger); font-weight: 600; margin: 12px 0 0; }
+    .bar { display: flex; align-items: center; gap: 10px; margin: 8px 0 14px; color: var(--text3); font-size: 14px; }
+    .bar button { margin-left: auto; background: none; border: 0; color: var(--accent); font-weight: 650; padding: 8px 0; }
+    ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    li { background: var(--surface); border-radius: 18px; padding: 14px 16px; }
+    .meta { display: flex; gap: 8px; align-items: baseline; color: var(--text3); font-size: 13px; }
+    .meta b { color: var(--text); font-size: 15px; }
+    .meta button { margin-left: auto; background: none; border: 0; color: var(--danger); font-size: 13px; font-weight: 650; padding: 4px 0; }
+    .text { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .empty { color: var(--text3); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Buzón</h1>
+    <p class="sub">Comentarios y mejoras que mandan desde la página del proyector.</p>
+
+    <form id="unlock" autocomplete="off">
+      <input id="code" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="10" placeholder="Código de 10 números" aria-label="Código de 10 números">
+      <button class="btn" type="submit">Abrir</button>
+    </form>
+    <p class="error" id="error" role="alert" hidden></p>
+
+    <section id="inbox" hidden>
+      <div class="bar"><span id="count"></span><button type="button" id="reload">Actualizar</button></div>
+      <ul id="items"></ul>
+    </section>
+  </main>
+
+  <script>
+    'use strict';
+    // The code goes in the request body, never in the URL, and is kept only
+    // for this tab (sessionStorage) so a reload does not ask again.
+    const $ = (id) => document.getElementById(id);
+    let code = '';
+    try { code = sessionStorage.getItem('feedback.code') || ''; } catch { /* private mode */ }
+
+    async function call(path, body) {
+      const res = await fetch(`api/feedback/${path}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code, ...body }),
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error(data.error || `Error ${res.status}`);
+      return data;
+    }
+
+    function fail(message) {
+      $('error').textContent = message;
+      $('error').hidden = false;
+    }
+
+    async function load() {
+      $('error').hidden = true;
+      let data;
+      try {
+        data = await call('list', {});
+      } catch (e) {
+        $('inbox').hidden = true;
+        $('unlock').hidden = false;
+        try { sessionStorage.removeItem('feedback.code'); } catch { /* ignore */ }
+        fail(e.message);
+        return;
+      }
+      try { sessionStorage.setItem('feedback.code', code); } catch { /* ignore */ }
+      $('unlock').hidden = true;
+      $('inbox').hidden = false;
+      const items = data.items || [];
+      $('count').textContent = items.length === 1 ? '1 comentario' : `${items.length} comentarios`;
+      const ul = $('items');
+      ul.replaceChildren();
+      if (!items.length) {
+        const li = document.createElement('li');
+        li.className = 'empty';
+        li.textContent = 'Todavía no hay comentarios.';
+        ul.append(li);
+      }
+      for (const it of items) {
+        const li = document.createElement('li');
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const who = document.createElement('b');
+        who.textContent = it.name || 'Sin nombre';
+        const when = document.createElement('span');
+        when.textContent = new Date(it.at * 1000).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })
+          + (it.version ? ` · v${it.version}` : '');
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.textContent = 'Borrar';
+        del.addEventListener('click', async () => {
+          try {
+            await call('delete', { id: it.id });
+            load();
+          } catch (e) {
+            fail(e.message);
+          }
+        });
+        meta.append(who, when, del);
+        // textContent: what people wrote is shown as text, never as HTML.
+        const text = document.createElement('p');
+        text.className = 'text';
+        text.textContent = it.text;
+        li.append(meta, text);
+        ul.append(li);
+      }
+    }
+
+    $('unlock').addEventListener('submit', (e) => {
+      e.preventDefault();
+      code = $('code').value.trim();
+      if (!/^\d{10}$/.test(code)) {
+        fail('Son 10 números');
+        return;
+      }
+      load();
+    });
+    $('reload').addEventListener('click', load);
+    if (code) load();
+    else $('code').focus();
+  </script>
+</body>
+</html>

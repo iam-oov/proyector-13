@@ -407,3 +407,39 @@ async def test_assistant_uses_the_search_cache(aiohttp_client, tmp_path):
     task.cancel()
     assert res.status == 200, await res.text()
     assert calls == ["Cumbias mix"]  # the assistant did not ask YouTube again
+
+
+# --- Buzón -------------------------------------------------------------------
+
+async def test_feedback_is_kept_and_only_read_with_the_code(aiohttp_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("FEEDBACK_CODE", "1234567890")
+    client = await aiohttp_client(create_app(tmp_path / "keys.json"))
+    assert (await client.post("/proyector/api/feedback", json={"text": "  "})).status == 400
+    res = await client.post("/proyector/api/feedback", json={"text": "Que diga la hora", "name": "Ana", "version": "abc"})
+    assert res.status == 200
+    assert (await client.post("/proyector/api/feedback/list", json={"code": "0000000000"})).status == 401
+    res = await client.post("/proyector/api/feedback/list", json={"code": "1234567890"})
+    items = (await res.json())["items"]
+    assert [(i["name"], i["text"]) for i in items] == [("Ana", "Que diga la hora")]
+    res = await client.post("/proyector/api/feedback/delete", json={"code": "1234567890", "id": items[0]["id"]})
+    assert (await res.json())["ok"] is True
+    res = await client.post("/proyector/api/feedback/list", json={"code": "1234567890"})
+    assert (await res.json())["items"] == []
+    # The page that asks for the code.
+    page = await client.get("/proyector/feedback")
+    assert page.status == 200 and "Buzón" in await page.text()
+
+
+async def test_feedback_locks_out_after_wrong_codes(aiohttp_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("FEEDBACK_CODE", "1234567890")
+    client = await aiohttp_client(create_app(tmp_path / "keys.json"))
+    for _ in range(5):
+        assert (await client.post("/proyector/api/feedback/list", json={"code": "1111111111"})).status == 401
+    # Even the right code waits now.
+    assert (await client.post("/proyector/api/feedback/list", json={"code": "1234567890"})).status == 429
+
+
+async def test_feedback_reading_needs_a_configured_code(aiohttp_client, tmp_path, monkeypatch):
+    monkeypatch.delenv("FEEDBACK_CODE", raising=False)
+    client = await aiohttp_client(create_app(tmp_path / "keys.json"))
+    assert (await client.post("/proyector/api/feedback/list", json={"code": ""})).status == 503

@@ -22,6 +22,8 @@
     <symbol id="i-play-circle" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-2 14.5v-9l6 4.5-6 4.5z"/></symbol>
     <symbol id="i-queue-music" viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18A3 3 0 1 0 19 17V8h3V6h-5z"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></symbol>
+    <symbol id="i-delete" viewBox="0 0 24 24"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></symbol>
     <symbol id="i-remove" viewBox="0 0 24 24"><path d="M19 13H5v-2h14v2z"/></symbol>
     <symbol id="i-add" viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></symbol>
     <symbol id="i-expand" viewBox="0 0 24 24"><path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z"/></symbol>
@@ -243,6 +245,37 @@
       <div id="playlists-body" hidden></div>
     </section>
 
+    <!-- Trading: the log lives on the projector, which also prices it
+         (Yahoo) and computes the P&L. Driven by trading.js. -->
+    <section id="view-trading" class="view" hidden>
+      <div class="center-state" id="trading-state" hidden>
+        <svg class="empty-icon"><use href="#i-trending"/></svg>
+        <p class="center-title" id="trading-state-title"></p>
+        <p class="hint center" id="trading-state-text"></p>
+      </div>
+      <div id="trading-body" hidden>
+        <div class="tile trade-stats">
+          <span class="section-label">P&amp;L de hoy</span>
+          <p class="trade-big" id="tr-day">—</p>
+          <div class="trade-row3">
+            <div><span class="section-label">Abierto</span><b id="tr-open">—</b></div>
+            <div><span class="section-label">Realizado</span><b id="tr-real">—</b></div>
+            <div><span class="section-label">Total</span><b id="tr-total">—</b></div>
+          </div>
+          <p class="trade-market" id="tr-market"></p>
+        </div>
+        <div class="two">
+          <button class="btn primary" type="button" id="tr-add"><svg><use href="#i-add"/></svg>Registrar</button>
+          <button class="btn soft" type="button" id="tr-show"><svg><use href="#i-cast"/></svg><span>Mostrar</span></button>
+        </div>
+        <span class="section-label spaced">Posiciones abiertas</span>
+        <ul class="trade-list" id="tr-positions"></ul>
+        <span class="section-label spaced" id="tr-closed-label">Cerradas</span>
+        <ul class="trade-list" id="tr-closed"></ul>
+        <button class="link link-toggle" type="button" id="tr-copy" hidden></button>
+      </div>
+    </section>
+
     <!-- A playlist's songs, pushed over the tabs. Filled by playlists.js. -->
     <section id="view-tracks" class="view" hidden></section>
 
@@ -281,7 +314,7 @@
     <button type="button" data-tab="voice" class="on"><span class="pill"><svg><use href="#i-mic"/></svg></span><span>Voz</span></button>
     <button type="button" data-tab="now"><span class="pill"><svg><use href="#i-play-circle"/></svg></span><span>Ahora</span></button>
     <button type="button" data-tab="playlists"><span class="pill"><svg><use href="#i-queue-music"/></svg></span><span>Playlists</span></button>
-    <button type="button" class="soon" id="tab-trading" aria-label="Trading, pronto"><span class="pill"><svg><use href="#i-trending"/></svg></span><span>Trading</span></button>
+    <button type="button" data-tab="trading"><span class="pill"><svg><use href="#i-trending"/></svg></span><span>Trading</span></button>
   </nav>
 
   <!-- Bottom sheets. -->
@@ -291,6 +324,10 @@
     <div class="handle"></div>
     <h3 class="sheet-title">Pantallas</h3>
     <ul class="devices" id="screens-list"></ul>
+    <button class="row-tile mailbox" type="button" data-action="feedback">
+      <svg class="lead"><use href="#i-mail"/></svg>
+      <span class="row-text"><b>Buzón</b><small>¿Algo falla o se te ocurre una mejora? Escríbela</small></span>
+    </button>
     <p class="version"><button class="link-quiet" type="button" id="app-ver"></button></p>
   </div>
 
@@ -324,8 +361,80 @@
     <div class="help-group">
       <span class="section-label muted"><svg><use href="#i-schedule"/></svg>Pronto</span>
       <div class="say-chips soon">
-        <span>Trading</span><span>Abrir Netflix y otras apps</span><span>Temporizador</span><span>Máscara</span>
+        <span>Trading por voz</span><span>Abrir Netflix y otras apps</span><span>Temporizador</span><span>Máscara</span>
       </div>
+    </div>
+    <button class="row-tile mailbox" type="button" data-action="feedback">
+      <svg class="lead"><use href="#i-mail"/></svg>
+      <span class="row-text"><b>¿Quieres pedir algo que no está?</b><small>Mándalo al buzón</small></span>
+    </button>
+  </div>
+
+  <div class="sheet" id="sheet-feedback" role="dialog" aria-label="Buzón" hidden>
+    <div class="handle"></div>
+    <h3 class="sheet-title small">Buzón</h3>
+    <p>¿Algo no funciona o se te ocurre una mejora? Lo leemos todo.</p>
+    <form class="trade-form" id="feedback-form" autocomplete="off">
+      <textarea id="fb-text" rows="5" maxlength="2000" placeholder="Me gustaría que…" aria-label="Tu comentario"></textarea>
+      <label class="field"><span>Tu nombre (opcional)</span><input class="text-input" id="fb-name" type="text" maxlength="40"></label>
+      <p class="sheet-error" id="fb-error" role="alert" hidden></p>
+      <div class="row-buttons">
+        <button class="btn ghost" type="button" data-action="close">Cancelar</button>
+        <button class="btn primary" type="submit" id="fb-send">Enviar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="sheet" id="sheet-trade" role="dialog" aria-label="Registrar movimiento" hidden>
+    <div class="handle"></div>
+    <h3 class="sheet-title small">Registrar movimiento</h3>
+    <form class="trade-form" id="trade-form" autocomplete="off">
+      <label class="field"><span>Símbolo</span><input class="text-input" id="tf-symbol" type="text" placeholder="AAPL" autocapitalize="characters" spellcheck="false" maxlength="12"></label>
+      <div class="segmented two-way" role="radiogroup" aria-label="Lado">
+        <button type="button" role="radio" data-side="long" class="on">Largo (compra)</button>
+        <button type="button" role="radio" data-side="short">Corto (venta)</button>
+      </div>
+      <div class="segmented two-way" role="radiogroup" aria-label="Cómo">
+        <button type="button" role="radio" data-by="amount" class="on">Por monto (USD)</button>
+        <button type="button" role="radio" data-by="qty">Por acciones</button>
+      </div>
+      <div class="field-row">
+        <label class="field"><span id="tf-amount-label">Monto (USD)</span><input class="text-input" id="tf-amount" type="text" inputmode="decimal" placeholder="50"></label>
+        <label class="field"><span>Precio (USD)</span><input class="text-input" id="tf-price" type="text" inputmode="decimal" placeholder="115"></label>
+      </div>
+      <p class="trade-calc" id="tf-calc"></p>
+      <label class="field"><span>Fecha</span><input class="text-input" id="tf-date" type="date"></label>
+      <p class="sheet-error" id="tf-error" role="alert" hidden></p>
+      <div class="row-buttons">
+        <button class="btn ghost" type="button" data-action="close">Cancelar</button>
+        <button class="btn primary" type="submit" id="tf-save">Guardar</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="sheet" id="sheet-close-pos" role="dialog" aria-label="Cerrar posición" hidden>
+    <div class="handle"></div>
+    <h3 class="sheet-title small" id="cp-title"></h3>
+    <p id="cp-info"></p>
+    <div class="trade-form">
+      <label class="field"><span>Precio de salida (USD)</span><input class="text-input" id="cp-price" type="text" inputmode="decimal"></label>
+      <label class="field"><span>Fecha</span><input class="text-input" id="cp-date" type="date"></label>
+    </div>
+    <p class="trade-calc" id="cp-calc"></p>
+    <p class="sheet-error" id="cp-error" role="alert" hidden></p>
+    <div class="row-buttons">
+      <button class="btn danger-soft" type="button" id="cp-delete" aria-label="Borrar sin vender"><svg><use href="#i-delete"/></svg></button>
+      <button class="btn primary" type="button" id="cp-save">Cerrar posición</button>
+    </div>
+  </div>
+
+  <div class="sheet" id="sheet-trade-confirm" role="dialog" aria-label="Confirmar" hidden>
+    <div class="handle"></div>
+    <h3 class="sheet-title small" id="tc-title"></h3>
+    <p id="tc-text"></p>
+    <div class="row-buttons">
+      <button class="btn ghost" type="button" data-action="close">Cancelar</button>
+      <button class="btn danger" type="button" id="tc-ok"></button>
     </div>
   </div>
 
@@ -430,6 +539,7 @@
   <script src="spotify.js?v=__VERSION__"></script>
   <script src="playlists.js?v=__VERSION__"></script>
   <script src="app.js?v=__VERSION__"></script>
+  <script src="trading.js?v=__VERSION__"></script>
   <!-- After app.js: it wires its controls with app.js helpers on load. -->
   <script src="mask.js?v=__VERSION__"></script>
 </body>

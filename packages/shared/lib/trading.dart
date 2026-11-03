@@ -172,6 +172,22 @@ class Position {
     final u = unrealized;
     return u == null || cost == 0 ? null : u / cost * 100;
   }
+
+  /// For the phone, which shows the same numbers as the projector without
+  /// computing them. Null where a price is missing.
+  Map<String, dynamic> toJson(DateTime now) => {
+        'symbol': symbol,
+        'side': side.name,
+        'qty': qty,
+        'avgEntry': avgEntry,
+        'cost': cost,
+        'price': quote?.price,
+        'previousClose': quote?.previousClose,
+        'unrealized': unrealized,
+        'unrealizedPct': unrealizedPct,
+        'dayPnl': dayPnl(now),
+        'tradeIds': [for (final t in trades) t.id],
+      };
 }
 
 /// Todo lo que muestra el tablero del proyector.
@@ -200,6 +216,21 @@ class PortfolioStats {
 
   /// P&L del día = movimiento de hoy de las abiertas + lo realizado hoy.
   double? get dayTotal => dayPnl == null ? null : dayPnl! + realizedToday;
+
+  /// Everything the phone's Trading tab shows, already computed.
+  Map<String, dynamic> toJson() => {
+        'positions': [for (final p in positions) p.toJson(computedAt)],
+        'unrealizedPnl': unrealizedPnl,
+        'dayPnl': dayPnl,
+        'realizedToday': realizedToday,
+        'realizedTotal': realizedTotal,
+        'totalPnl': totalPnl,
+        'dayTotal': dayTotal,
+        'closed': [
+          for (final t in closedTrades) {...t.toJson(), 'realizedPnl': t.realizedPnl},
+        ],
+        'computedAt': computedAt.toIso8601String(),
+      };
 
   static PortfolioStats compute(List<Trade> trades, Map<String, Quote> quotes, {DateTime? now}) {
     final today = now ?? DateTime.now();

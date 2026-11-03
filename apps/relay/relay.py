@@ -668,8 +668,138 @@ async def _assistant(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "heard": said, **out})
 
 
+# --- Buzón: comments and ideas from the PWA ---------------------------------
+#
+# Anyone with the page can leave one (rate-limited per IP). Reading them takes
+# a 10-digit code that lives only on the server (FEEDBACK_CODE, or the file
+# feedback_code in the state directory), never in this public repo. Wrong
+# codes are limited per IP so the 10^10 space cannot be walked.
+
+FEEDBACK_MAX_TEXT = 2000
+FEEDBACK_KEEP = 5000
+FEEDBACK_RATE, FEEDBACK_RATE_WINDOW = 5, 600.0
+FEEDBACK_MISSES, FEEDBACK_MISS_WINDOW = 5, 900.0
+
+
+class FeedbackStore:
+    def __init__(self, path: Path):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self._db = sqlite3.connect(str(path), isolation_level=None)
+        except (sqlite3.Error, OSError):
+            self._db = sqlite3.connect(":memory:", isolation_level=None)
+        self._db.execute(
+            "CREATE TABLE IF NOT EXISTS feedback ("
+            " id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, name TEXT NOT NULL,"
+            " text TEXT NOT NULL, version TEXT NOT NULL)"
+        )
+
+    def add(self, name: str, text: str, version: str) -> None:
+        self._db.execute(
+            "INSERT INTO feedback (at, name, text, version) VALUES (?, ?, ?, ?)", (time.time(), name, text, version)
+        )
+        self._db.execute(
+            "DELETE FROM feedback WHERE id NOT IN (SELECT id FROM feedback ORDER BY id DESC LIMIT ?)",
+            (FEEDBACK_KEEP,),
+        )
+
+    def all(self) -> list[dict]:
+        rows = self._db.execute("SELECT id, at, name, text, version FROM feedback ORDER BY id DESC").fetchall()
+        return [{"id": r[0], "at": r[1], "name": r[2], "text": r[3], "version": r[4]} for r in rows]
+
+    def delete(self, item_id: int) -> bool:
+        return self._db.execute("DELETE FROM feedback WHERE id = ?", (item_id,)).rowcount > 0
+
+    def close(self) -> None:
+        self._db.close()
+
+
+FEEDBACK = web.AppKey("feedback", FeedbackStore)
+FEEDBACK_LIMIT = web.AppKey("feedback_limit", RateLimiter)
+FEEDBACK_MISS = web.AppKey("feedback_miss", RateLimiter)
+
+
+def _feedback_code(app: web.Application) -> str:
+    value = os.environ.get("FEEDBACK_CODE", "").strip()
+    if not value:
+        try:
+            value = (app[STATE_DIR] / "feedback_code").read_text().strip()
+        except OSError:
+            value = ""
+    return value if re.fullmatch(r"\d{10}", value) else ""
+
+
+async def _json_body(request: web.Request) -> dict:
+    try:
+        body = await request.json()
+    except (ValueError, UnicodeDecodeError):
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+@routes.post(PREFIX + "/api/feedback")
+async def _feedback_add(request: web.Request) -> web.Response:
+    body = await _json_body(request)
+    text = str(body.get("text") or "").strip()
+    if not text:
+        return _error(400, "Escribe tu comentario")
+    if len(text) > FEEDBACK_MAX_TEXT:
+        return _error(400, f"Máximo {FEEDBACK_MAX_TEXT} letras")
+    who = request.headers.get("cf-connecting-ip") or request.remote or "?"
+    if not request.app[FEEDBACK_LIMIT].allow(who):
+        return _error(429, "Ya mandaste varios, espera unos minutos")
+    name = " ".join(str(body.get("name") or "").split())[:40]
+    version = str(body.get("version") or "")[:20]
+    request.app[FEEDBACK].add(name, text, version)
+    return web.json_response({"ok": True})
+
+
+async def _feedback_auth(request: web.Request) -> tuple[web.Response | None, dict]:
+    """The body, or an error: not configured, locked out, or a wrong code."""
+    body = await _json_body(request)
+    code = _feedback_code(request.app)
+    if not code:
+        return _error(503, "Falta configurar el código del buzón en el servidor"), body
+    who = request.headers.get("cf-connecting-ip") or request.remote or "?"
+    misses: RateLimiter = request.app[FEEDBACK_MISS]
+    # Peek: a locked-out address is refused even with the right code.
+    now = time.monotonic()
+    if len([t for t in misses._hits.get(who, []) if now - t < misses.window]) >= misses.limit:
+        return _error(429, "Demasiados intentos. Espera 15 minutos."), body
+    if not secrets.compare_digest(str(body.get("code") or "").strip(), code):
+        misses.allow(who)
+        return _error(401, "Código incorrecto"), body
+    return None, body
+
+
+@routes.get(PREFIX + "/feedback")
+async def _feedback_page(_: web.Request) -> web.Response:
+    return web.FileResponse(WEB_DIR / "feedback.html", headers={"cache-control": "no-cache"})
+
+
+@routes.post(PREFIX + "/api/feedback/list")
+async def _feedback_list(request: web.Request) -> web.Response:
+    err, _ = await _feedback_auth(request)
+    if err:
+        return err
+    return web.json_response({"ok": True, "items": request.app[FEEDBACK].all()})
+
+
+@routes.post(PREFIX + "/api/feedback/delete")
+async def _feedback_delete(request: web.Request) -> web.Response:
+    err, body = await _feedback_auth(request)
+    if err:
+        return err
+    try:
+        item_id = int(body.get("id"))
+    except (TypeError, ValueError):
+        return _error(400, "Falta cuál borrar")
+    return web.json_response({"ok": request.app[FEEDBACK].delete(item_id)})
+
+
 async def _close_search_cache(app: web.Application) -> None:
     app[SEARCH_CACHE].close()
+    app[FEEDBACK].close()
 
 
 def create_app(
@@ -693,6 +823,9 @@ def create_app(
     app[ASKER] = [asker]
     app[ASSISTANT_LIMIT] = RateLimiter(ASSISTANT_RATE, ASSISTANT_RATE_WINDOW)
     app[ASSISTANT_DAY] = ["", 0]
+    app[FEEDBACK] = FeedbackStore(app[STATE_DIR] / "feedback.sqlite3")
+    app[FEEDBACK_LIMIT] = RateLimiter(FEEDBACK_RATE, FEEDBACK_RATE_WINDOW)
+    app[FEEDBACK_MISS] = RateLimiter(FEEDBACK_MISSES, FEEDBACK_MISS_WINDOW)
     app.cleanup_ctx.append(_http_session)
     app.on_cleanup.append(_close_search_cache)
     app.add_routes(routes)

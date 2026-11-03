@@ -96,6 +96,30 @@ class TradingController {
     _timer = Timer(at.difference(DateTime.now()), () => refresh());
   }
 
+  /// GET /trading for the phone: the log, its stats with the projector's
+  /// prices, and when they were fetched. Prices are only polled while the
+  /// home is on screen, so a phone asking with stale ones (or none) starts a
+  /// refresh in the background; its next poll gets the new numbers.
+  Map<String, dynamic> snapshot() {
+    final now = DateTime.now();
+    final at = state.quotesAt;
+    final stale = at == null ||
+        (UsMarketHours.isOpen(now) && now.difference(at) > const Duration(seconds: 60));
+    if (stale && !state.quotesLoading && state.trades.any((t) => t.isOpen)) {
+      unawaited(refresh());
+    }
+    final market = state.quotes.values.firstOrNull?.marketState;
+    return {
+      'trades': [for (final t in state.trades) t.toJson()],
+      'stats': state.stats.toJson(),
+      'quotesAt': at?.toIso8601String(),
+      'nextQuotesAt': state.nextQuotesAt?.toIso8601String(),
+      'quotesLoading': state.quotesLoading,
+      'quotesError': state.quotesError,
+      'marketOpen': UsMarketHours.isOpen(now) && market != 'CLOSED',
+    };
+  }
+
   /// Llamado por el servidor después de un POST /trading.
   Future<void> onChanged() async {
     await store.save(state.trades, false);

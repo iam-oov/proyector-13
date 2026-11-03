@@ -22,6 +22,7 @@ class ReceiverServer {
     this.state, {
     this.port = 8080,
     this.onTradingChanged,
+    this.tradingSnapshot,
     this.mask,
     this.spotify,
     this.stats,
@@ -38,6 +39,9 @@ class ReceiverServer {
 
   /// Se llama después de cada POST /trading (persistir, pedir precios).
   final Future<void> Function()? onTradingChanged;
+
+  /// GET /trading and the answer to POST /trading (see TradingController.snapshot).
+  final Map<String, dynamic> Function()? tradingSnapshot;
   Timer? _addressTimer;
 
   /// The full route pipeline, also used by [RelayClient] to answer requests
@@ -51,6 +55,7 @@ class ReceiverServer {
       ..post('/pair', _auth(_pair))
       ..post('/unpair', _auth(_unpair))
       ..post('/play', _auth(_play))
+      ..get('/trading', _auth(_getTrading))
       ..post('/trading', _auth(_trading))
       ..post('/mask', _auth(_mask))
       ..post('/spotify', _auth(_spotify))
@@ -289,11 +294,18 @@ class ReceiverServer {
     if (body['overlay'] == false) await stats?.hide();
     if (mode != 'overlay') await onTradingChanged?.call();
     return _json({
+      ...?tradingSnapshot?.call(),
       'ok': true,
       'mode': mode,
       'overlay': stats?.visible ?? false,
-      'trades': state.trades.length,
     });
+  }
+
+  /// La bitácora con sus estadísticas, para la pestaña Trading del teléfono.
+  Response _getTrading(Request _) {
+    final s = tradingSnapshot;
+    if (s == null) return _json({'ok': false, 'error': 'Trading no disponible'}, 500);
+    return _json({...s(), 'ok': true, 'overlay': stats?.visible ?? false});
   }
 
   /// Cola: `{"tracks": [{title, artists}], "name": "…", "shuffle": true, "startAt": 0}`,

@@ -103,4 +103,22 @@ void main() {
     final q = Quote.fromJson(quotes['AAPL']!.toJson());
     expect(q.previousClose, 115);
   });
+
+  test('las estadísticas en JSON traen lo mismo que el tablero (para el teléfono)', () {
+    final withClosed = [trades.first.close(exitPrice: 130, at: today), ...trades.skip(1)];
+    final stats = PortfolioStats.compute(withClosed, quotes, now: today);
+    final j = stats.toJson();
+    // a cerrada hoy (+300) más las del ejemplo: d (+20) y e (−10).
+    expect(j['realizedTotal'], 310);
+    expect(j['unrealizedPnl'], stats.unrealizedPnl);
+    expect(j['dayTotal'], stats.dayTotal);
+    final closed = {for (final t in j['closed'] as List) t['id']: t['realizedPnl']};
+    expect(closed, {'a': 300, 'd': 20, 'e': -10});
+    final first = (j['positions'] as List).first as Map<String, dynamic>;
+    final p = stats.positions.first;
+    expect(first['symbol'], p.symbol);
+    expect(first['qty'], p.qty);
+    expect(first['unrealized'], p.unrealized);
+    expect(first['tradeIds'], [for (final t in p.trades) t.id]);
+  });
 }

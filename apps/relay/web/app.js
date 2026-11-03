@@ -161,10 +161,12 @@ function toast(text, { error = false } = {}) {
 // ---------------------------------------------------------------------------
 // Sheets.
 
-const sheets = ['sheet-screens', 'sheet-help', 'sheet-menu', 'sheet-add', 'sheet-paste', 'sheet-phone', 'sheet-rename', 'sheet-confirm', 'sheet-others', 'sheet-like'];
+const sheets = ['sheet-screens', 'sheet-help', 'sheet-feedback', 'sheet-trade', 'sheet-close-pos', 'sheet-trade-confirm', 'sheet-menu', 'sheet-add', 'sheet-paste', 'sheet-phone', 'sheet-rename', 'sheet-confirm', 'sheet-others', 'sheet-like'];
 let afterPhoneName = null;
 
 function openSheet(id) {
+  // A leftover notice would cover the sheet's fields.
+  $('toast').hidden = true;
   for (const s of sheets) $(s).hidden = s !== id;
   $('scrim').hidden = false;
 }
@@ -696,7 +698,6 @@ $('btn-voice').addEventListener('click', () => {
   setTab('voice');
   listen();
 });
-$('tab-trading').addEventListener('click', () => toast('Trading llega pronto'));
 
 /// Fits the field to its text, up to 5 lines (then it scrolls).
 function growSearch() {
@@ -1197,6 +1198,7 @@ document.addEventListener('click', (e) => {
   else if (el.dataset.action === 'paste') openCodeSheet();
   else if (el.dataset.action === 'rename-phone') askPhoneName(null);
   else if (el.dataset.action === 'voice') setTab('voice');
+  else if (el.dataset.action === 'feedback') openFeedback();
   else if (el.dataset.action === 'close') closeSheets();
   else if (el.dataset.action === 'spotify-login') spotifyAuthorize('phone');
 });
@@ -1211,6 +1213,43 @@ $('mini-like').addEventListener('click', likeCurrent);
 $('spotify-row-btn').addEventListener('click', () => {
   if (spotifyLoggedIn()) spotifyLogout();
   else spotifyAuthorize('phone');
+});
+
+// --- Buzón: comments and ideas for whoever runs the page ----------------------
+
+function openFeedback() {
+  $('fb-name').value = store.phoneName || '';
+  $('fb-error').hidden = true;
+  openSheet('sheet-feedback');
+  $('fb-text').focus();
+}
+
+$('feedback-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('fb-text').value.trim();
+  if (!text) {
+    $('fb-text').focus();
+    return;
+  }
+  $('fb-send').disabled = true;
+  try {
+    const res = await fetch('api/feedback', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, name: $('fb-name').value.trim(), version: APP_VERSION }),
+      cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || 'No se pudo enviar, intenta otra vez');
+    $('fb-text').value = '';
+    closeSheets();
+    toast('Gracias, ya está en el buzón');
+  } catch (err) {
+    $('fb-error').textContent = err.message === 'Failed to fetch' ? 'Sin conexión a internet' : err.message;
+    $('fb-error').hidden = false;
+  } finally {
+    $('fb-send').disabled = false;
+  }
 });
 
 /// The other videos YouTube found: for the Spotify song that was sent, or for
@@ -1244,6 +1283,7 @@ function setTab(name) {
   for (const b of document.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === name);
   render();
   if (name === 'playlists') loadPlaylists();
+  if (name === 'trading') loadTrading();
 }
 
 function render() {
@@ -1262,6 +1302,7 @@ function render() {
   $('view-voice').hidden = !onVoice;
   $('view-now').hidden = !p || pushed || tab !== 'now';
   $('view-playlists').hidden = !p || pushed || tab !== 'playlists';
+  $('view-trading').hidden = !p || pushed || tab !== 'trading';
   $('view-tracks').hidden = !(pushed && view === 'tracks');
   $('view-mask').hidden = !(pushed && view === 'mask');
   $('playlists-login').hidden = spotifyLoggedIn();
@@ -1274,6 +1315,8 @@ function render() {
   renderNow(p);
   if (onVoice) renderVoice();
   if (!pushed && tab === 'playlists') renderPlaylists();
+  // trading.js loads after this file.
+  if (!pushed && tab === 'trading' && typeof renderTrading === 'function') renderTrading();
   if (pushed && view === 'tracks') renderTracks();
   if (pushed && view === 'mask') renderMask();
   renderMini(p);

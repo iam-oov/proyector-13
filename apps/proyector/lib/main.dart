@@ -60,6 +60,7 @@ Future<void> main() async {
   final server = ReceiverServer(
     state,
     onTradingChanged: trading.onChanged,
+    tradingSnapshot: trading.snapshot,
     mask: mask,
     spotify: spotify,
     stats: stats,
