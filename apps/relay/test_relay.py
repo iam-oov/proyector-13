@@ -7,7 +7,7 @@ import pytest
 import relay
 from relay import create_app
 
-ID = "aknx93pfcuwu"
+ID = "testproj0001"
 KEY = "k" * 43
 
 
@@ -114,7 +114,7 @@ async def test_index_names_its_version(aiohttp_client, tmp_path, monkeypatch):
     assert '<meta name="app-version" content="abc1234">' in html
 
 
-PAIRING = b'{"ok":true,"id":"aknx93pfcuwu","name":"ProyectorBasico","token":"Qm5y1xk2Qm5y1xk2Qm5y1xk2"}'
+PAIRING = b'{"ok":true,"id":"testproj0001","name":"ProyectorBasico","token":"fake-test-token-0000"}'
 
 
 async def test_short_code_roundtrip(client):
@@ -127,7 +127,7 @@ async def test_short_code_roundtrip(client):
     req = await serve_one(ws, body=PAIRING)
     res = await call
     assert res.status == 200
-    assert (await res.json())["token"] == "Qm5y1xk2Qm5y1xk2Qm5y1xk2"
+    assert (await res.json())["token"] == "fake-test-token-0000"
     assert req["method"] == "POST" and req["path"] == "/code"
     assert base64.b64decode(req["body"]) == b'{"code": "482913"}'
 
@@ -229,7 +229,7 @@ def test_parse_youtube_search():
 
 # --- Voice assistant ---------------------------------------------------------
 
-TOKEN = "Qm5y1xk2Qm5y1xk2Qm5y1xk2"
+TOKEN = "fake-test-token-0000"
 
 
 def fake_asker(*answers):

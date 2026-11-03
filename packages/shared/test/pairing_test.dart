@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared/shared.dart';
 
 void main() {
-  const token = 'Qm5y1xk2Qm5y1xk2Qm5y1xk2Qm5y1xk2';
+  const token = 'fake-test-token-for-pairing-0001';
   const payload = PairingPayload(
     id: 'k3j9x0qa2mzp',
     name: 'Recámara de Valdo',
