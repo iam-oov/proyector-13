@@ -73,6 +73,8 @@ function dropSpotify() {
   spotifyMe = null;
   spotifyName = null;
   savePlaylistId = null;
+  savedSongs = null;
+  savedAt = 0;
 }
 
 function spotifyLogout() {
@@ -285,6 +287,7 @@ async function pollSpotify() {
   try {
     track = await nowPlaying();
     followIfChanged();
+    refreshSavedSongs();
     if (spotifyName === null) spotifyName = await accountName(await accessToken());
   } catch (e) {
     if (spToken) console.warn('spotify:', e.message);
@@ -555,7 +558,8 @@ async function searchSpotifyTracks(q) {
   });
 }
 
-async function ensureSavePlaylist() {
+/// proyector_13's id, or null when the user does not have it yet.
+async function findSavePlaylist() {
   if (savePlaylistId) return savePlaylistId;
   if (!spotifyMe) {
     const me = await sp('/me');
@@ -574,6 +578,12 @@ async function ensureSavePlaylist() {
     }
     next = j.next ? j.next.replace('https://api.spotify.com/v1', '') : null;
   }
+  return null;
+}
+
+async function ensureSavePlaylist() {
+  const found = await findSavePlaylist();
+  if (found) return found;
   const body = { name: SAVE_PLAYLIST, public: false, description: 'Canciones guardadas desde el proyector' };
   let res = await sp('/me/playlists', { method: 'POST', body });
   // Older form of the endpoint.
@@ -601,6 +611,58 @@ async function addToSavePlaylist(t) {
   return 'added';
 }
 
+// --- Which songs proyector_13 already has (the filled heart) -------------------
+
+// Its songs, read again every few minutes (it can also change in Spotify).
+let savedSongs = null;
+let savedAt = 0;
+let savedLoading = false;
+const SAVED_REFRESH_MS = 2 * 60 * 1000;
+
+async function refreshSavedSongs() {
+  if (!spotifyLoggedIn() || savedLoading || Date.now() - savedAt < SAVED_REFRESH_MS) return;
+  savedLoading = true;
+  savedAt = Date.now();
+  try {
+    const id = await findSavePlaylist();
+    if (id) playlistTracks.delete(id);
+    savedSongs = id ? await tracksOf(id) : [];
+  } catch {
+    // Keep what we knew; try again on the next refresh.
+  } finally {
+    savedLoading = false;
+    render();
+  }
+}
+
+/// [part] in [text] as whole words ("deja" in "… - deja (en vivo)", not in
+/// "dejame"). Both already normalized.
+function hasWords(text, part) {
+  if (!part) return false;
+  const esc = part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^\\p{L}\\p{N}])${esc}($|[^\\p{L}\\p{N}])`, 'u').test(text);
+}
+
+/// A YouTube title is this song: its base title and one of its artists are
+/// in it ("Grupo Firme - @ElMimoso… - Deja (En Vivo)" ↔ "Deja (En Vivo)").
+function videoIsSong(videoTitle, s) {
+  const v = normalize(videoTitle);
+  return hasWords(v, baseTitle(s.title)) && s.artists.some((a) => hasWords(v, normalize(a)));
+}
+
+/// What plays now (the Spotify song or the projector's video) is already in
+/// proyector_13, saved on this visit or before.
+function isSavedNow() {
+  if (savedHere.has(likeKey())) return true;
+  if (!savedSongs || !savedSongs.length) return false;
+  if (projectorMode() === 'spotify' && track) {
+    return savedSongs.some((s) => (track.uri && s.uri === track.uri)
+      || (baseTitle(s.title) === baseTitle(track.title) && s.artists.some((a) => track.artists.includes(a))));
+  }
+  const m = (health && health.media) || {};
+  return !!m.title && savedSongs.some((s) => videoIsSong(m.title, s));
+}
+
 let liking = false;
 
 async function saveSong(t) {
@@ -612,6 +674,7 @@ async function saveSong(t) {
   try {
     const r = await addToSavePlaylist(t);
     if (key) savedHere.add(key);
+    if (savedSongs && !savedSongs.some((x) => x.uri === t.uri)) savedSongs.push(t);
     toast(r === 'already' ? `"${t.title}" ya estaba en proyector_13` : `Guardada en proyector_13: ${t.title}`);
   } catch (e) {
     toast(e.message, { error: true });

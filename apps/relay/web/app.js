@@ -477,7 +477,8 @@ async function refresh() {
       // Authenticated: proves the token and fills the slider.
       const v = await api(p, 'volume');
       if (p !== current()) return;
-      if (v.status === 200 && v.data.ok) volume = v.data;
+      // A − / + tap waits to be sent: do not jump back to the old level.
+      if (v.status === 200 && v.data.ok && Date.now() - volTouched > 2500) volume = v.data;
       if (status[p.id] === 'online' && store.phoneName && !announced.has(p.id)) {
         announced.add(p.id);
         api(p, 'pair', { method: 'POST', body: { phoneName: store.phoneName } });
@@ -619,9 +620,28 @@ $('vol-range').addEventListener('input', () => {
 // Sent only on release, like the app's slider.
 $('vol-range').addEventListener('change', () => {
   volDragging = false;
+  volTouched = Date.now();
   setVolume({ level: Number($('vol-range').value) });
 });
 $('btn-mute').addEventListener('click', () => setVolume({ mute: !(volume && volume.muted) }));
+
+// − / +: one step of the projector's scale (15 steps whatever its max), shown
+// at once and sent 300 ms after the last tap, so a burst of taps is one call.
+let volTouched = 0;
+let volTimer = 0;
+function stepVolume(dir) {
+  if (!volume) return;
+  const max = volume.max || 15;
+  const step = Math.max(1, Math.round(max / 15));
+  const level = Math.max(0, Math.min(max, volume.level + dir * step));
+  volume = { ...volume, level, muted: false };
+  volTouched = Date.now();
+  renderVolume();
+  clearTimeout(volTimer);
+  volTimer = setTimeout(() => setVolume({ level }), 300);
+}
+$('vol-down').addEventListener('click', () => stepVolume(-1));
+$('vol-up').addEventListener('click', () => stepVolume(1));
 
 // ---------------------------------------------------------------------------
 // Voz: the home. The microphone (or the field) goes to the assistant, which
@@ -1463,10 +1483,11 @@ function renderFollow(p, online, logged) {
   $('follow-text').textContent = text;
 }
 
-/// The heart: only with a Spotify session; filled once saved this visit.
+/// The heart: only with a Spotify session; filled when what plays is already
+/// in proyector_13.
 function renderLike(btn, possible) {
   btn.hidden = !(possible && spotifyLoggedIn());
-  const saved = savedHere.has(likeKey());
+  const saved = isSavedNow();
   btn.classList.toggle('on', saved);
   btn.querySelector('use').setAttribute('href', saved ? '#i-favorite' : '#i-heart-outline');
   btn.setAttribute('aria-label', saved ? 'Guardada en proyector_13' : 'Guardar en proyector_13');
@@ -1537,6 +1558,8 @@ function renderVolume() {
   range.max = String(v.max || 15);
   if (!volDragging) range.value = String(v.level);
   paintVolume(volDragging ? Number(range.value) : v.level);
+  $('vol-down').disabled = v.level <= 0;
+  $('vol-up').disabled = v.level >= (v.max || 15);
   $('icon-vol').querySelector('use').setAttribute('href', v.muted ? '#i-vol-off' : '#i-vol-mute');
   $('btn-mute').setAttribute('aria-label', v.muted ? 'Quitar silencio' : 'Silenciar');
 }
