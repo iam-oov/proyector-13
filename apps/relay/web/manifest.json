@@ -1,11 +1,11 @@
 {
   "name": "Proyector",
   "short_name": "Proyector",
-  "description": "Controla el proyector desde cualquier lugar",
+  "description": "Controla el proyector con la voz",
   "lang": "es",
   "start_url": "/proyector/",
   "scope": "/proyector/",
-  "display": "standalone",
+  "display": "browser",
   "background_color": "#0f0f14",
   "theme_color": "#0f0f14",
   "icons": [

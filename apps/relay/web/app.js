@@ -1,8 +1,8 @@
 'use strict';
 
 // Projector control PWA served by the relay at www.valdoh.com/proyector.
-// Same design and features as apps/control, minus trading, TVs and the sleep
-// timer. Every projector call goes through the relay (api/p/<id>/<path>),
+// Voice first: the home is the microphone, which talks to the assistant on
+// the relay; Ahora, Playlists and Máscara are the same as in apps/control. Every projector call goes through the relay (api/p/<id>/<path>),
 // which hands it to the projector over its WebSocket; the projector checks the
 // QR's Bearer token itself. UI strings are Spanish.
 
@@ -55,7 +55,7 @@ const status = {};
 let health = null;
 let volume = null;
 let checked = false;
-let tab = 'now';
+let tab = 'voice';
 let view = 'tabs';
 let ticks = 0;
 let volDragging = false;
@@ -161,7 +161,7 @@ function toast(text, { error = false } = {}) {
 // ---------------------------------------------------------------------------
 // Sheets.
 
-const sheets = ['sheet-screens', 'sheet-menu', 'sheet-add', 'sheet-paste', 'sheet-phone', 'sheet-rename', 'sheet-confirm', 'sheet-others', 'sheet-like'];
+const sheets = ['sheet-screens', 'sheet-help', 'sheet-menu', 'sheet-add', 'sheet-paste', 'sheet-phone', 'sheet-rename', 'sheet-confirm', 'sheet-others', 'sheet-like'];
 let afterPhoneName = null;
 
 function openSheet(id) {
@@ -623,19 +623,24 @@ $('vol-range').addEventListener('change', () => {
 $('btn-mute').addEventListener('click', () => setVolume({ mute: !(volume && volume.muted) }));
 
 // ---------------------------------------------------------------------------
-// Buscar: a screen over the tabs, with the assistant's microphone.
+// Voz: the home. The microphone (or the field) goes to the assistant, which
+// runs it on the projector and says what it did. Without the assistant on the
+// server, the field is a plain YouTube search with a list of results.
 
 let searching = false;
 let results = [];
 let resultsFromAssistant = false;
+// Unknown until version.json answers; the microphone waits disabled meanwhile.
 let assistantOn = false;
+let assistantKnown = false;
 let asking = false;
 let recognizer = null;
-// No SpeechRecognition: the keyboard's microphone types into the field, and
-// the next submit goes to the assistant instead of a plain search.
-let dictating = false;
+// idle | listening | thinking | result | error
+let voice = 'idle';
+let saidText = '';
+let steps = [];
 
-// Screens pushed over the tabs (Buscar, a playlist's songs): a history entry
+// Screens pushed over the tabs (a playlist's songs, Máscara): a history entry
 // each, so the phone's back gesture closes them like in the app.
 function pushView(v) {
   if (view === v) return;
@@ -657,19 +662,20 @@ window.addEventListener('popstate', () => {
   const v = (history.state && history.state.v) || 'tabs';
   if (v === view) return;
   // A pushed view with nothing to show (e.g. after a reload) goes to the tabs.
-  view = (v === 'tracks' && !openList) || (v === 'mask' && !mask) ? 'tabs' : v;
+  view = (v === 'tracks' && !openList) || (v === 'mask' && !mask) || !['tracks', 'mask'].includes(v) ? 'tabs' : v;
   stopListening();
   render();
 });
 
-function openSearch() {
-  pushView('search');
-  // Synchronously, inside the tap: iOS only raises the keyboard then.
-  if (!results.length) $('search-input').focus();
-}
-
-$('btn-search').addEventListener('click', openSearch);
 $('btn-back').addEventListener('click', popView);
+$('btn-help').addEventListener('click', openHelp);
+// From Ahora or Playlists: straight to listening, inside the tap (iOS only
+// lets the microphone start from a user gesture).
+$('btn-voice').addEventListener('click', () => {
+  setTab('voice');
+  listen();
+});
+$('tab-trading').addEventListener('click', () => toast('Trading llega pronto'));
 
 /// Fits the field to its text, up to 5 lines (then it scrolls).
 function growSearch() {
@@ -693,7 +699,7 @@ $('search-input').addEventListener('input', () => {
 });
 window.addEventListener('resize', growSearch);
 if (document.fonts) document.fonts.ready.then(growSearch);
-// Enter searches, like the keyboard's search key; it never adds a line.
+// Enter sends, like the keyboard's send key; it never adds a line.
 $('search-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
     e.preventDefault();
@@ -709,12 +715,21 @@ $('search-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const q = $('search-input').value.trim();
   if (!q) return;
-  if (dictating) {
-    dictating = false;
-    ask(q);
-  } else {
-    search(q);
+  if (assistantOn) ask(q);
+  else search(q);
+});
+
+/// A typed or tapped example ("Súbele 3") runs right away.
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-say]');
+  if (!el) return;
+  closeSheets();
+  if (tab !== 'voice' || view !== 'tabs') {
+    view = 'tabs';
+    setTab('voice');
   }
+  if (assistantOn) ask(el.dataset.say);
+  else search(el.dataset.say);
 });
 
 async function search(q) {
@@ -722,8 +737,9 @@ async function search(q) {
   searching = true;
   resultsFromAssistant = false;
   $('search-input').blur();
-  $('assist-line').hidden = true;
+  voice = 'idle';
   $('search-progress').hidden = false;
+  renderVoice();
   try {
     const res = await fetch(`api/search?q=${encodeURIComponent(q)}`, { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
@@ -735,7 +751,7 @@ async function search(q) {
   } finally {
     searching = false;
     $('search-progress').hidden = true;
-    renderSearch();
+    renderVoice();
   }
 }
 
@@ -751,7 +767,7 @@ async function play(video) {
   // The row and the Ahora card show what was sent, so no toast.
   store.lastSent[p.id] = { id: video.id, title: video.title, thumb: video.thumb || null, at: Date.now() };
   saveStore();
-  renderSearch();
+  renderVoice();
   setTimeout(refresh, 1500);
   return true;
 }
@@ -760,16 +776,20 @@ async function play(video) {
 // the Anthropic key never reaches this page.
 
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-// Listening this long with no words at all: give up and offer the keyboard.
+// Listening this long with no words at all: give up and say why.
 // On iPhone Safari the recognizer goes silent when Dictation is off in
-// Settings or when the page runs as a home-screen app, so the message says so.
+// Settings or when the page runs as a home-screen app.
 const LISTEN_TIMEOUT_MS = 10000;
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Icons added before the manifest said "browser" still open standalone.
 const isStandalone = window.navigator.standalone === true
   || window.matchMedia('(display-mode: standalone)').matches;
+const voiceBroken = isIOS && isStandalone;
 
-function assistLine(text, kind) {
+/// The card above the microphone: a headline, an optional detail line and
+/// buttons. kind: 'busy' | 'done' | 'error' | undefined.
+function assistLine(text, kind, { detail = '', actions = [] } = {}) {
   const el = $('assist-line');
   el.replaceChildren();
   if (kind === 'busy') {
@@ -781,7 +801,32 @@ function assistLine(text, kind) {
   }
   el.append(document.createTextNode(text));
   el.className = `assist-line${kind ? ` ${kind}` : ''}`;
-  el.hidden = false;
+  $('assist-detail').textContent = detail;
+  $('assist-detail').hidden = !detail;
+  const box = $('assist-actions');
+  box.replaceChildren();
+  for (const a of actions) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = `btn ${a.primary ? 'primary' : 'soft'}`;
+    if (a.icon) b.insertAdjacentHTML('beforeend', `<svg><use href="#${a.icon}"/></svg>`);
+    b.append(document.createTextNode(a.label));
+    b.addEventListener('click', a.fn);
+    box.append(b);
+  }
+  box.hidden = !actions.length;
+  $('assist-card').hidden = false;
+}
+
+/// "No te escuché" and friends: the card says why and offers the keyboard.
+function voiceFailed(title, detail) {
+  voice = 'error';
+  steps = [];
+  assistLine(title, 'error', {
+    detail,
+    actions: [{ label: 'Escribirlo', icon: 'i-keyboard', primary: true, fn: () => $('search-input').focus() }],
+  });
+  renderVoice();
 }
 
 async function ask(text) {
@@ -789,12 +834,16 @@ async function ask(text) {
   const p = current();
   if (!said || !p || asking) return;
   asking = true;
-  setSearchText(said);
+  saidText = said;
+  steps = [];
+  voice = 'thinking';
+  setSearchText('');
   $('search-input').blur();
   $('search-input').disabled = true;
-  $('assist-mic').disabled = true;
+  $('search-send').disabled = true;
   $('search-clear').hidden = true;
-  assistLine('Pensando…', 'busy');
+  $('assist-card').hidden = true;
+  renderVoice();
   try {
     const res = await fetch('api/assistant', {
       method: 'POST',
@@ -808,10 +857,12 @@ async function ask(text) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {
+      voice = 'error';
       assistLine(data.error || 'No pude, intenta otra vez', 'error');
       return;
     }
-    assistLine(data.reply || 'Listo', 'done');
+    voice = 'result';
+    steps = Array.isArray(data.steps) ? data.steps.filter((s) => s && typeof s.text === 'string') : [];
     // "Ahora en la recámara": the assistant changed projector.
     if (data.selected && data.selected !== store.selected && store.projectors.some((x) => x.id === data.selected)) {
       select(data.selected);
@@ -822,19 +873,21 @@ async function ask(text) {
       store.lastSent[sel.id] = { ...data.played, thumb: first ? first.thumb : null, at: Date.now() };
       saveStore();
     }
-    if (Array.isArray(data.results) && data.results.length) {
-      results = data.results;
-      resultsFromAssistant = true;
-    }
+    resultsFromAssistant = Array.isArray(data.results) && data.results.length > 0;
+    results = resultsFromAssistant ? data.results : [];
+    const actions = [];
+    if (results.length > 1) actions.push({ label: 'No es el video', icon: 'i-library', fn: () => openOthers(results) });
+    assistLine(data.reply || 'Listo', 'done', { actions });
     volume = null;
     setTimeout(refresh, 1200);
   } catch {
+    voice = 'error';
     assistLine('Sin conexión a internet', 'error');
   } finally {
     asking = false;
     $('search-input').disabled = false;
-    $('assist-mic').disabled = false;
-    renderSearch();
+    $('search-send').disabled = false;
+    renderVoice();
   }
 }
 
@@ -843,16 +896,19 @@ function stopListening() {
 }
 
 function listen() {
-  if (asking) return;
+  if (asking || !assistantOn) return;
   if (recognizer) {
     recognizer.stop();
     return;
   }
+  if (voiceBroken) {
+    // Known dead end: say it now instead of listening for 10 s.
+    $('voice-standalone').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    return;
+  }
   if (!Recognition) {
-    dictating = true;
-    setSearchText('');
+    voiceFailed('Este navegador no reconoce la voz', 'Escríbelo, o usa el micrófono del teclado y luego Enviar.');
     $('search-input').focus();
-    assistLine('Toca el micrófono del teclado, dime qué poner y luego Buscar');
     return;
   }
   const r = new Recognition();
@@ -860,68 +916,101 @@ function listen() {
   r.interimResults = true;
   r.continuous = false;
   let finalText = '';
+  let heard = '';
   let failed = false;
-  let heard = false;
   const watchdog = setTimeout(() => {
     if (heard) return;
     failed = true;
-    dictating = true;
     r.abort();
-    const why = !isIOS ? ''
-      : isStandalone ? ' En iPhone la voz solo funciona abriendo la página en Safari, no desde el ícono de inicio.'
-      : ' En iPhone revisa Ajustes → General → Teclado → Activar dictado.';
-    assistLine(`No te escuché.${why} Mientras, toca el micrófono del teclado y luego Buscar`);
-    $('search-input').focus();
+    voiceFailed('No te escuché', isIOS
+      ? 'Revisa Ajustes → General → Teclado → Activar dictado. Mientras, el micrófono del teclado siempre funciona.'
+      : 'Revisa que el micrófono no lo esté usando otra app, o escríbelo.');
   }, LISTEN_TIMEOUT_MS);
   r.onresult = (e) => {
-    heard = true;
     let text = '';
     for (const res of e.results) {
       text += res[0].transcript;
       if (res.isFinal) finalText = text;
     }
-    setSearchText(text);
+    heard = text;
+    saidText = text;
+    renderVoice();
   };
   r.onerror = (e) => {
     failed = true;
     if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-      dictating = true;
-      assistLine('Sin permiso para el micrófono: usa el micrófono del teclado y luego Buscar', 'error');
-      $('search-input').focus();
+      voiceFailed('El navegador no tiene permiso del micrófono', isIOS
+        ? 'Ajustes → Safari → Micrófono → Permitir. Luego regresa y toca el micrófono.'
+        : 'Toca el candado junto a la dirección y permite el micrófono.');
     } else if (e.error === 'no-speech') {
-      assistLine('No te escuché, intenta otra vez');
+      voiceFailed('No te escuché', 'Toca el micrófono y habla cerca del teléfono.');
+    } else if (e.error !== 'aborted') {
+      voiceFailed('No pude escucharte', 'Intenta otra vez o escríbelo.');
     }
   };
   r.onend = () => {
     clearTimeout(watchdog);
     recognizer = null;
-    setListening(false);
-    const text = finalText || $('search-input').value;
-    if (!failed && text.trim()) ask(text);
+    const text = (finalText || heard).trim();
+    if (!failed && text) ask(text);
+    else if (voice === 'listening') {
+      voice = 'idle';
+      renderVoice();
+    }
   };
   recognizer = r;
-  setSearchText('');
-  setListening(true);
+  voice = 'listening';
+  saidText = '';
+  $('assist-card').hidden = true;
+  renderVoice();
   try {
     r.start();
   } catch {
     recognizer = null;
-    setListening(false);
-    dictating = true;
-    $('search-input').focus();
-    assistLine('Toca el micrófono del teclado, dime qué poner y luego Buscar');
+    voiceFailed('No pude abrir el micrófono', 'Intenta otra vez o escríbelo.');
   }
 }
 
-function setListening(on) {
-  $('assist-mic').classList.toggle('listening', on);
-  $('icon-mic').toggleAttribute('hidden', on);
-  $('icon-eq').toggleAttribute('hidden', !on);
-  $('search-input').placeholder = on ? 'Te escucho…' : 'Canción o artista';
-  if (on) $('assist-line').hidden = true;
+$('assist-mic').addEventListener('click', listen);
+
+$('standalone-copy').addEventListener('click', async () => {
+  const p = current();
+  if (!p) return;
+  try {
+    await navigator.clipboard.writeText(pairingLink(p));
+    toast(store.projectors.length > 1
+      ? `Link de ${p.name} copiado. Pégalo en Safari; para las otras pantallas cópialo desde Pantallas → ⋮`
+      : 'Link copiado. Pégalo en la barra de Safari');
+  } catch {
+    copyCode(p);
+  }
+});
+
+/// The examples under the microphone; "Cambia a …" only with more than one
+/// screen, so it names a real one.
+function sayExamples(p) {
+  const other = store.projectors.find((x) => x.id !== p.id);
+  const list = ['Pon cumbias para limpiar', 'Súbele 3', 'Pausa', 'Adelántalo 5 minutos'];
+  if (other) list.push(`Cambia a ${other.name}`);
+  return list;
 }
 
-$('assist-mic').addEventListener('click', listen);
+function openHelp() {
+  const others = store.projectors.filter((x) => x !== current());
+  const box = $('help-screens-chips');
+  box.replaceChildren();
+  for (const x of others.slice(0, 2)) {
+    for (const say of [`Cambia a ${x.name}`, `En ${x.name} pon cumbias`]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.say = say;
+      b.textContent = `"${say}"`;
+      box.append(b);
+    }
+  }
+  $('help-screens').hidden = !others.length;
+  openSheet('sheet-help');
+}
 
 // ---------------------------------------------------------------------------
 // Screens: pick, rename, copy code, remove.
@@ -1069,12 +1158,11 @@ document.addEventListener('click', (e) => {
   else if (el.dataset.action === 'scan') openScanner();
   else if (el.dataset.action === 'paste') openCodeSheet();
   else if (el.dataset.action === 'rename-phone') askPhoneName(null);
-  else if (el.dataset.action === 'search') openSearch();
+  else if (el.dataset.action === 'voice') setTab('voice');
   else if (el.dataset.action === 'close') closeSheets();
   else if (el.dataset.action === 'spotify-login') spotifyAuthorize('phone');
 });
 
-$('spotify-connect').addEventListener('click', () => spotifyAuthorize('phone'));
 $('btn-send').addEventListener('click', () => sendTrack(track));
 $('btn-link-spotify').addEventListener('click', () => {
   const p = current();
@@ -1084,7 +1172,7 @@ $('chip-follow').addEventListener('click', () => {
   if (screenLinked()) setScreenFollowing(!followingSpotify());
   else setAutoFollow(!store.autoFollow);
 });
-$('chip-others').addEventListener('click', openOthers);
+$('chip-others').addEventListener('click', () => openOthers(candidates));
 $('btn-like').addEventListener('click', likeCurrent);
 $('mini-like').addEventListener('click', likeCurrent);
 $('spotify-row-btn').addEventListener('click', () => {
@@ -1092,12 +1180,13 @@ $('spotify-row-btn').addEventListener('click', () => {
   else spotifyAuthorize('phone');
 });
 
-/// The other videos YouTube found for the song that was sent.
-function openOthers() {
+/// The other videos YouTube found: for the Spotify song that was sent, or for
+/// what the assistant played (its pick is first in both lists).
+function openOthers(from) {
   const p = current();
   const list = $('others-list');
   list.replaceChildren();
-  for (const v of candidates.slice(1)) {
+  for (const v of from.slice(1)) {
     const li = document.createElement('li');
     li.append(resultRow(v, p, false, () => {
       closeSheets();
@@ -1127,17 +1216,18 @@ function setTab(name) {
 function render() {
   const p = current();
   const pushed = !!p && view !== 'tabs';
-  const inSearch = pushed && view === 'search';
+  const onVoice = !!p && !pushed && tab === 'voice';
   $('top').hidden = !p;
   $('top').classList.toggle('in-search', pushed);
   $('btn-back').hidden = !pushed;
-  $('btn-search').hidden = inSearch;
+  $('btn-help').hidden = !onVoice || !assistantOn;
+  $('btn-voice').hidden = onVoice || pushed || !assistantOn;
   $('tabs').hidden = !p || pushed;
   document.body.classList.toggle('no-tabs', !p || pushed);
   $('view-welcome').hidden = !!p;
+  $('view-voice').hidden = !onVoice;
   $('view-now').hidden = !p || pushed || tab !== 'now';
   $('view-playlists').hidden = !p || pushed || tab !== 'playlists';
-  $('view-search').hidden = !inSearch;
   $('view-tracks').hidden = !(pushed && view === 'tracks');
   $('view-mask').hidden = !(pushed && view === 'mask');
   $('playlists-login').hidden = spotifyLoggedIn();
@@ -1148,7 +1238,7 @@ function render() {
   }
   renderHeader(p);
   renderNow(p);
-  if (inSearch) renderSearch();
+  if (onVoice) renderVoice();
   if (!pushed && tab === 'playlists') renderPlaylists();
   if (pushed && view === 'tracks') renderTracks();
   if (pushed && view === 'mask') renderMask();
@@ -1215,7 +1305,7 @@ function renderMini(p) {
 
 $('mini-open').addEventListener('click', () => {
   if (view !== 'tabs') {
-    // Close the pushed screen (Buscar, a playlist) the same way back does.
+    // Close the pushed screen (a playlist, Máscara) the same way back does.
     if (history.state && history.state.v === view) history.back();
     view = 'tabs';
   }
@@ -1248,13 +1338,16 @@ function renderNow(p) {
     ? `El código de ${p.name} cambió. En el proyector abre "Vincular teléfono" y escanea el QR otra vez.`
     : `${p.name} no responde. Revisa que esté prendido y con internet; esto se actualiza solo.`;
 
+  // Spotify is one more row at the bottom, not the main thing.
   $('spotify-connect').hidden = !spotifyClientId || logged;
-  $('spotify-connect').disabled = spotifyBusy;
+  $('open-spotify').hidden = !logged;
 
   const empty = mode === 'free' && (!online || !m.title);
   $('now-empty').hidden = !empty;
   $('now-playing').hidden = empty;
-  $('empty-text').textContent = `Pon música en Spotify y ${p.name} cambia el video sola, o busca un video para mandarlo.`;
+  $('empty-text').textContent = logged
+    ? `Pídelo con la voz, o pon música en Spotify y ${p.name} cambia el video sola.`
+    : `Pídelo con la voz: "pon cumbias", "música para dormir".`;
 
   if (!empty) {
     const sent = store.lastSent[p.id];
@@ -1409,38 +1502,110 @@ function renderVolume() {
   $('btn-mute').setAttribute('aria-label', v.muted ? 'Quitar silencio' : 'Silenciar');
 }
 
-let searchKey = '';
+let resultsKey = '';
+let chipsKey = '';
 
-function renderSearch() {
+function renderVoice() {
   const p = current();
   if (!p) return;
-  // Rebuilt only when it changed (see playlistsKey in playlists.js).
-  const key = JSON.stringify([results.map((v) => v.id), resultsFromAssistant, asking, searching, assistantOn,
-    stateOf(p), p.name, store.lastSent[p.id] && store.lastSent[p.id].id]);
-  if (key === searchKey) return;
-  searchKey = key;
-  $('assist-mic').hidden = !assistantOn;
-  $('search-empty').hidden = results.length > 0 || searching;
-  $('search-empty').textContent = assistantOn
-    ? `Escribe una canción y elige el video, o toca el micrófono y pide algo: "música para la playa". Va a ${p.name}.`
-    : `Escribe qué quieres ver y toca un resultado para mandarlo a ${p.name}.`;
-  const sent = store.lastSent[p.id];
-  const enabled = stateOf(p) !== 'offline' && stateOf(p) !== 'unauthorized' && !asking;
-  const list = $('results');
+  const st = stateOf(p);
+  const listening = voice === 'listening';
+  const thinking = voice === 'thinking';
+  const answered = voice === 'result' || voice === 'error';
+  const searchOnly = assistantKnown && !assistantOn;
+  $('view-voice').dataset.state = searchOnly ? 'search' : voice;
+
+  $('voice-standalone').hidden = !voiceBroken || !assistantOn;
+  const mic = $('assist-mic');
+  mic.hidden = searchOnly;
+  mic.disabled = !assistantOn || thinking || voiceBroken;
+  mic.classList.toggle('listening', listening);
+  mic.setAttribute('aria-label', listening ? 'Terminar' : 'Hablar');
+  $('icon-mic').toggleAttribute('hidden', listening);
+  $('icon-eq').toggleAttribute('hidden', !listening);
+  $('voice-bars').hidden = !listening;
+
+  let title;
+  let sub = '';
+  if (searchOnly) {
+    title = 'Busca un video';
+    sub = `Escribe qué quieres ver y toca un resultado para mandarlo a ${p.name}.`;
+  } else if (listening) {
+    title = 'Te escucho…';
+    sub = saidText ? `"${saidText}"` : 'Toca el botón cuando termines';
+  } else if (thinking) {
+    title = 'Pensando…';
+  } else if (answered) {
+    title = 'Pide otra cosa';
+  } else {
+    title = 'Toca y dime qué hacer';
+    sub = st === 'offline' ? `${p.name} no responde: revisa que esté prendido y con internet.`
+      : st === 'unauthorized' ? `El código de ${p.name} cambió: escanea su QR otra vez.`
+        : `Pon música o videos, controla el volumen o cambia de pantalla. Va a ${p.name}.`;
+  }
+  $('voice-title').textContent = title;
+  $('voice-sub').textContent = sub;
+  $('voice-sub').hidden = !sub;
+  $('voice-sub').classList.toggle('live', listening && !!saidText);
+
+  $('voice-said').hidden = !(thinking || answered) || !saidText;
+  $('voice-said-text').textContent = `"${saidText}"`;
+  if (!answered) $('assist-card').hidden = true;
+
+  // One line per action, only when there was more than one or one failed:
+  // a single action is already the headline.
+  const list = $('assist-steps');
   list.replaceChildren();
-  results.forEach((v, i) => {
-    if (resultsFromAssistant && i === 1) {
-      const label = document.createElement('li');
-      label.className = 'label-row';
-      label.innerHTML = '<span class="section-label">¿No es el video correcto?</span>';
-      list.append(label);
+  const showSteps = voice === 'result' && (steps.length > 1 || steps.some((x) => !x.ok));
+  list.hidden = !showSteps;
+  if (showSteps) {
+    for (const step of steps) {
+      const li = document.createElement('li');
+      li.className = step.ok ? 'ok' : 'bad';
+      li.insertAdjacentHTML('beforeend', `<svg><use href="#${step.ok ? 'i-check' : 'i-close'}"/></svg>`);
+      li.append(document.createTextNode(step.text));
+      list.append(li);
     }
+  }
+
+  $('voice-examples').hidden = !assistantOn || voice !== 'idle' || voiceBroken;
+  const examples = sayExamples(p);
+  const ck = examples.join('|');
+  if (ck !== chipsKey) {
+    chipsKey = ck;
+    const box = $('say-chips');
+    box.replaceChildren();
+    for (const say of examples) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.dataset.say = say;
+      b.textContent = say;
+      box.append(b);
+    }
+  }
+
+  $('search-input').placeholder = searchOnly ? 'Canción o video' : listening ? 'Te escucho…' : 'O escríbelo aquí';
+
+  // Plain search results (no assistant). The assistant's other videos are
+  // behind "No es el video" instead.
+  const showList = !resultsFromAssistant;
+  const key = JSON.stringify([showList && results.map((v) => v.id), asking, searching,
+    st, p.name, store.lastSent[p.id] && store.lastSent[p.id].id]);
+  if (key === resultsKey) return;
+  resultsKey = key;
+  $('search-empty').hidden = true;
+  const sent = store.lastSent[p.id];
+  const enabled = st !== 'offline' && st !== 'unauthorized' && !asking;
+  const ul = $('results');
+  ul.replaceChildren();
+  if (!showList) return;
+  for (const v of results) {
     const li = document.createElement('li');
     const btn = resultRow(v, p, !!sent && sent.id === v.id, () => play(v));
     btn.disabled = !enabled;
     li.append(btn);
-    list.append(li);
-  });
+    ul.append(li);
+  }
 }
 
 function resultRow(v, p, isSent, onClick) {
@@ -1553,9 +1718,10 @@ async function checkVersion() {
   try {
     const v = await (await fetch('version.json', { cache: 'no-store' })).json();
     if (typeof v.version === 'string') serverVersion = v.version;
-    if (typeof v.assistant === 'boolean' && v.assistant !== assistantOn) {
+    if (typeof v.assistant === 'boolean' && (v.assistant !== assistantOn || !assistantKnown)) {
       assistantOn = v.assistant;
-      renderSearch();
+      assistantKnown = true;
+      render();
     }
   } catch {
     // Offline: keep what we knew.

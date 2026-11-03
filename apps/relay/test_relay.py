@@ -300,6 +300,8 @@ async def test_assistant_plays_and_sets_volume(aiohttp_client, tmp_path):
     assert data["reply"] == "Pongo cumbias y subo el volumen"
     assert data["played"] == {"id": "b" * 11, "title": "Otro"}
     assert [v["id"] for v in data["results"]] == ["b" * 11, VIDEO["id"]]
+    # One line per action for the result card, the volume with before and after.
+    assert data["steps"] == [{"text": "Pongo Otro", "ok": True}, {"text": "Volumen 5 → 9", "ok": True}]
     # Context tells Claude the volume scale; the phone's token goes with every call.
     assert "Volumen: 5 de 15" in asked[0]
     assert all(auth == f"Bearer {TOKEN}" for _, _, auth in seen)

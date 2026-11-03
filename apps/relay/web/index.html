@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Proyector</title>
   <meta name="theme-color" content="#0f0f14">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Proyector">
   <meta name="app-version" content="__VERSION__">
   <meta name="spotify-client-id" content="__SPOTIFY_CLIENT_ID__">
@@ -61,6 +58,11 @@
     <symbol id="i-layers-clear" viewBox="0 0 24 24"><path d="m19.81 14.99 1.19-.92-1.43-1.43-1.19.92 1.43 1.43zm-.45-4.72L21 9l-9-7-2.91 2.27 7.87 7.88 2.4-1.88zM3.27 1 2 2.27l4.22 4.22L3 9l1.63 1.27L12 16l2.1-1.63 1.43 1.43L12 18.54l-7.37-5.73L3 14.07l9 7 4.95-3.85L20.73 21 22 19.73 3.27 1z"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
     <symbol id="i-heart-outline" viewBox="0 0 24 24"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><path d="M11 18h2v-2h-2v2zm1-16a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm0-14a4 4 0 0 0-4 4h2a2 2 0 1 1 4 0c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5a4 4 0 0 0-4-4z"/></symbol>
+    <symbol id="i-trending" viewBox="0 0 24 24"><path d="m16 6 2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6h-6z"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><path d="M20 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12l1.41 1.41L11 7.83V20h2V7.83l5.58 5.59L20 12l-8-8-8 8z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2zm0 16H8V7h11v14z"/></symbol>
     <symbol id="i-note" viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></symbol>
   </svg>
 
@@ -76,19 +78,77 @@
       <span class="screen-problem" id="screen-problem" hidden></span>
     </button>
     <button class="circle" id="btn-add" type="button" aria-label="Agregar pantalla"><svg><use href="#i-add"/></svg></button>
-    <button class="circle" id="btn-search" type="button" aria-label="Buscar"><svg><use href="#i-search"/></svg></button>
+    <button class="circle" id="btn-help" type="button" aria-label="Qué puedo pedir"><svg><use href="#i-help"/></svg></button>
+    <button class="circle accent" id="btn-voice" type="button" aria-label="Pedir con la voz" hidden><svg><use href="#i-mic"/></svg></button>
   </header>
 
   <main>
     <!-- First run: no projector yet. -->
     <section id="view-welcome" class="view" hidden>
       <div class="welcome">
-        <img src="icon-180.png" alt="" class="welcome-icon">
-        <h1>Controla tu proyector</h1>
-        <p>En el proyector abre <b>Vincular teléfono</b>. Escanea el QR o escribe los 6 números que salen junto a él.</p>
+        <span class="welcome-mic" aria-hidden="true"><svg><use href="#i-mic"/></svg></span>
+        <h1>Controla tu proyector con la voz</h1>
+        <p>"Pon cumbias", "súbele", "pausa". Primero vincula tu proyector:</p>
+        <ol class="steps">
+          <li><span class="n">1</span><span>En el proyector abre <b>Vincular teléfono</b></span></li>
+          <li><span class="n">2</span><span>Escanea el QR o escribe los 6 números</span></li>
+        </ol>
         <button class="btn primary big" type="button" data-action="scan"><svg><use href="#i-qr"/></svg>Escanear QR</button>
         <button class="btn ghost" type="button" data-action="paste">Tengo un código</button>
       </div>
+    </section>
+
+    <!-- Voz: the home. The microphone, what the assistant did, and the field
+         for typing (the reliable path when the voice fails). -->
+    <section id="view-voice" class="view voice" hidden>
+      <div class="tile notice" id="voice-standalone" hidden>
+        <p><b>La voz no funciona desde este ícono.</b> En iPhone solo funciona en Safari, y Safari no ve los proyectores de este ícono.</p>
+        <ol class="steps small">
+          <li><span class="n">1</span><span>Copia el link y ábrelo en Safari</span></li>
+          <li><span class="n">2</span><span>En Safari: Compartir → Agregar a inicio</span></li>
+          <li><span class="n">3</span><span>Borra este ícono</span></li>
+        </ol>
+        <button class="btn primary" type="button" id="standalone-copy"><svg><use href="#i-copy"/></svg>Copiar link</button>
+      </div>
+
+      <div class="said" id="voice-said" hidden>
+        <span class="section-label">Dijiste</span>
+        <p id="voice-said-text"></p>
+      </div>
+
+      <div class="assist-card" id="assist-card" hidden>
+        <p class="assist-line" id="assist-line"></p>
+        <p class="assist-detail" id="assist-detail" hidden></p>
+        <ul class="assist-steps" id="assist-steps"></ul>
+        <div class="assist-actions" id="assist-actions"></div>
+      </div>
+
+      <div class="voice-hero" id="voice-hero">
+        <button class="voice-mic" type="button" id="assist-mic" aria-label="Hablar" disabled>
+          <svg id="icon-mic"><use href="#i-mic"/></svg>
+          <svg id="icon-eq" hidden><use href="#i-eq"/></svg>
+        </button>
+        <div class="bars" id="voice-bars" aria-hidden="true" hidden><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        <h1 class="voice-title" id="voice-title">Toca y dime qué hacer</h1>
+        <p class="voice-sub" id="voice-sub"></p>
+      </div>
+
+      <div class="examples" id="voice-examples">
+        <span class="section-label">Prueba con</span>
+        <div class="say-chips" id="say-chips"></div>
+      </div>
+
+      <form class="search-row" id="search-form" autocomplete="off">
+        <label class="search-field">
+          <svg><use href="#i-keyboard"/></svg>
+          <textarea id="search-input" rows="1" enterkeyhint="send" placeholder="O escríbelo aquí" aria-label="Escribe qué hacer" spellcheck="false"></textarea>
+          <button class="icon-btn small" type="button" id="search-clear" aria-label="Borrar" hidden><svg><use href="#i-close"/></svg></button>
+        </label>
+        <button class="round send" type="submit" id="search-send" aria-label="Enviar"><svg><use href="#i-send"/></svg></button>
+      </form>
+      <div class="progress" id="search-progress" hidden></div>
+      <p class="search-empty" id="search-empty" hidden></p>
+      <ul class="results" id="results"></ul>
     </section>
 
     <section id="view-now" class="view" hidden>
@@ -97,15 +157,13 @@
         <button class="btn primary" type="button" data-action="scan" id="offline-rescan" hidden>Escanear el QR otra vez</button>
       </div>
 
-      <button class="btn primary big" type="button" id="spotify-connect" hidden><svg><use href="#i-note"/></svg>Conectar Spotify</button>
-
       <div class="tile empty-card" id="now-empty" hidden>
         <svg class="empty-icon"><use href="#i-music-off"/></svg>
         <h2>Nada sonando</h2>
         <p id="empty-text"></p>
         <div class="two">
-          <a class="btn primary" id="open-spotify" href="https://open.spotify.com" target="_blank" rel="noopener"><svg><use href="#i-open"/></svg>Spotify</a>
-          <button class="btn soft" type="button" data-action="search"><svg><use href="#i-search"/></svg>Buscar</button>
+          <button class="btn primary" type="button" data-action="voice"><svg><use href="#i-mic"/></svg>Pedirlo</button>
+          <a class="btn soft" id="open-spotify" href="https://open.spotify.com" target="_blank" rel="noopener" hidden><svg><use href="#i-open"/></svg>Spotify</a>
         </div>
       </div>
 
@@ -150,6 +208,11 @@
       </div>
       <button class="btn outline big" type="button" id="btn-link-spotify" hidden><svg><use href="#i-link"/></svg>Que el proyector siga a Spotify aunque guardes el teléfono</button>
 
+      <div class="row-tile static" id="spotify-connect" hidden>
+        <svg class="lead"><use href="#i-note"/></svg>
+        <span class="row-text"><b>Spotify sin conectar</b><small>Para que el proyector siga lo que suena en tu teléfono</small></span>
+        <button class="link" type="button" data-action="spotify-login">Conectar</button>
+      </div>
     </section>
 
     <section id="view-playlists" class="view" hidden>
@@ -182,24 +245,6 @@
       <button class="btn primary big" type="button" id="mask-save"><svg><use href="#i-check"/></svg>Guardar máscara</button>
     </section>
 
-    <!-- Buscar opens over the tabs, like a pushed screen in the app. -->
-    <section id="view-search" class="view" hidden>
-      <form class="search-row" id="search-form" autocomplete="off">
-        <label class="search-field">
-          <svg><use href="#i-search"/></svg>
-          <textarea id="search-input" rows="1" enterkeyhint="search" placeholder="Canción o artista" aria-label="Buscar en YouTube" spellcheck="false"></textarea>
-          <button class="icon-btn small" type="button" id="search-clear" aria-label="Borrar" hidden><svg><use href="#i-close"/></svg></button>
-        </label>
-        <button class="round mic" type="button" id="assist-mic" aria-label="Pedir con la voz" hidden>
-          <svg id="icon-mic"><use href="#i-mic"/></svg>
-          <svg id="icon-eq" hidden><use href="#i-eq"/></svg>
-        </button>
-      </form>
-      <p class="assist-line" id="assist-line" hidden></p>
-      <div class="progress" id="search-progress" hidden></div>
-      <p class="search-empty" id="search-empty"></p>
-      <ul class="results" id="results"></ul>
-    </section>
   </main>
 
   <!-- Mini player: floats over the other screens while something plays. -->
@@ -214,8 +259,10 @@
   </div>
 
   <nav class="tabs" id="tabs" hidden>
-    <button type="button" data-tab="now" class="on"><span class="pill"><svg><use href="#i-play-circle"/></svg></span><span>Ahora</span></button>
+    <button type="button" data-tab="voice" class="on"><span class="pill"><svg><use href="#i-mic"/></svg></span><span>Voz</span></button>
+    <button type="button" data-tab="now"><span class="pill"><svg><use href="#i-play-circle"/></svg></span><span>Ahora</span></button>
     <button type="button" data-tab="playlists"><span class="pill"><svg><use href="#i-queue-music"/></svg></span><span>Playlists</span></button>
+    <button type="button" class="soon" id="tab-trading" aria-label="Trading, pronto"><span class="pill"><svg><use href="#i-trending"/></svg></span><span>Trading</span></button>
   </nav>
 
   <!-- Bottom sheets. -->
@@ -226,6 +273,41 @@
     <h3 class="sheet-title">Pantallas</h3>
     <ul class="devices" id="screens-list"></ul>
     <p class="version"><button class="link-quiet" type="button" id="app-ver"></button></p>
+  </div>
+
+  <div class="sheet" id="sheet-help" role="dialog" aria-label="Qué puedo pedir" hidden>
+    <div class="handle"></div>
+    <h3 class="sheet-title">¿Qué puedo pedir?</h3>
+    <p>Habla normal. Puedes pedir varias cosas en una frase. Toca un ejemplo para probarlo.</p>
+    <div class="help-group">
+      <span class="section-label"><svg><use href="#i-play-circle"/></svg>Poner</span>
+      <div class="say-chips">
+        <button type="button" data-say="Pon Bad Bunny">"Pon Bad Bunny"</button>
+        <button type="button" data-say="Música para dormir">"Música para dormir"</button>
+        <button type="button" data-say="Lo último de Luisito Comunica">"Lo último de Luisito"</button>
+      </div>
+    </div>
+    <div class="help-group">
+      <span class="section-label"><svg><use href="#i-eq"/></svg>Controlar</span>
+      <div class="say-chips">
+        <button type="button" data-say="Pausa">"Pausa"</button>
+        <button type="button" data-say="Siguiente">"Siguiente"</button>
+        <button type="button" data-say="Súbele 3">"Súbele 3"</button>
+        <button type="button" data-say="Volumen a la mitad">"Volumen a la mitad"</button>
+        <button type="button" data-say="Silencio">"Silencio"</button>
+        <button type="button" data-say="Adelántalo 5 minutos">"Adelántalo 5 minutos"</button>
+      </div>
+    </div>
+    <div class="help-group" id="help-screens" hidden>
+      <span class="section-label"><svg><use href="#i-videocam"/></svg>Pantallas</span>
+      <div class="say-chips" id="help-screens-chips"></div>
+    </div>
+    <div class="help-group">
+      <span class="section-label muted"><svg><use href="#i-schedule"/></svg>Pronto</span>
+      <div class="say-chips soon">
+        <span>Trading</span><span>Abrir Netflix y otras apps</span><span>Temporizador</span><span>Máscara</span>
+      </div>
+    </div>
   </div>
 
   <div class="sheet" id="sheet-menu" role="dialog" aria-label="Opciones" hidden>

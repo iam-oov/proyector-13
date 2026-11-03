@@ -191,23 +191,29 @@ async def run(
     search: Searcher,
 ) -> dict:
     """Understand [said] and do it, starting on [target] (already connected and
-    its token checked). Returns what the PWA shows: {reply, selected, played?}.
+    its token checked). Returns what the PWA shows: {reply, selected, steps, played?}.
     Raises Fail when nothing could be done."""
     intent = await ask(INTENT_SYSTEM, f"{context_text(projectors, target, online)}\n\nDijo: «{said}»", INTENT_SCHEMA)
     actions = [a for a in intent.get("actions") or [] if isinstance(a, dict)]
     if not actions:
         raise Fail('No entendí. Prueba "pon música para la playa".')
 
-    state = {"target": target, "played": None}
+    state = {"target": target, "played": None, "step": None}
     done: list[str] = []
     failed: list[str] = []
+    # One line per action for the PWA's result card ("Volumen 8 → 11" ✓).
+    steps: list[dict] = []
     for a in actions:
+        state["step"] = None
         try:
             r = await _action(said, a, state, projectors, connect, ask, search)
             if r:
                 done.append(r)
+            if text := r or state["step"]:
+                steps.append({"text": text, "ok": True})
         except Fail as e:
             failed.append(str(e))
+            steps.append({"text": str(e), "ok": False})
 
     reply = str(intent.get("reply") or "")
     if any(a.get("action") == "unknown" for a in actions):
@@ -220,7 +226,7 @@ async def run(
         reply = done[0]
     if failed:
         reply = f"{reply}. No pude: {'; '.join(failed)}"
-    out = {"reply": reply, "selected": state["target"].id}
+    out = {"reply": reply, "selected": state["target"].id, "steps": steps}
     if state["played"]:
         out["played"] = state["played"]
         out["results"] = state["results"]
@@ -242,7 +248,7 @@ async def _action(said, a, state, projectors, connect, ask, search) -> str | Non
     if kind == "play":
         return await _play(said, a, state, ask, search)
     if kind == "control":
-        await _control(a, t)
+        state["step"] = await _control(a, t)
         return None
     return None
 
@@ -284,7 +290,16 @@ async def _play(said, a, state, ask, search) -> str:
     return str(pick.get("reply") or f"Pongo {v.get('title')}")
 
 
-async def _control(a: dict, t: Target) -> None:
+def _clock(seconds: int) -> str:
+    """90 -> "1:30", 3725 -> "1:02:05"."""
+    h, rest = divmod(seconds, 3600)
+    m, s = divmod(rest, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
+async def _control(a: dict, t: Target) -> str | None:
+    """Runs one transport or volume action on [t]; returns its line for the
+    result card, or None when there was nothing to do."""
     c = a.get("control")
     seconds = _int(a.get("seconds"), 0, 86400)
     if c in ("pause", "resume", "stop"):
@@ -309,7 +324,8 @@ async def _control(a: dict, t: Target) -> None:
             level = max(0, min(top, level + (n or 2) * (1 if c == "volume_up" else -1)))
         req = ("POST", "/volume", {"level": level})
     else:
-        return
+        return None
+    before = _int((t.volume or {}).get("level"), 0, 1000)
     status, res = await t.call(*req)
     if status == 409:
         raise Fail("No hay un video sonando")
@@ -317,3 +333,16 @@ async def _control(a: dict, t: Target) -> None:
         raise Fail(res.get("error") or f"{t.name} no pudo hacerlo")
     if req[1] == "/volume":
         t.volume = res
+    if c in ("volume_up", "volume_down", "volume_set"):
+        after = _int(res.get("level"), 0, 1000) if "level" in res else level
+        return f"Volumen {before} → {after}"
+    if c == "next":
+        return f"Siguiente: {res['info']}" if res.get("info") else "Siguiente"
+    if c == "seek_forward":
+        return f"Adelanté {_clock(seconds)}"
+    if c == "seek_back":
+        return f"Regresé {_clock(seconds)}"
+    if c == "seek_to":
+        return f"En el {_clock(seconds)}"
+    return {"pause": "Pausado", "resume": "Reanudado", "stop": "Detenido",
+            "mute": "Silenciado", "unmute": "Con sonido"}[c]
