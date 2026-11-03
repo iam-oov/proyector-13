@@ -759,14 +759,15 @@ async function play(video) {
 // Voice assistant. The relay does the work (Claude + the projector calls), so
 // the Anthropic key never reaches this page.
 
-// iPhone and iPad: Safari exposes webkitSpeechRecognition but it hangs with no
-// transcript (home-screen web apps, Dictation off, iOS 17+ reports), so they
-// go straight to the keyboard's microphone, which always works there.
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+// Listening this long with no words at all: give up and offer the keyboard.
+// On iPhone Safari the recognizer goes silent when Dictation is off in
+// Settings or when the page runs as a home-screen app, so the message says so.
+const LISTEN_TIMEOUT_MS = 10000;
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const Recognition = isIOS ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);
-// Listening this long with no words at all: give up and offer the keyboard.
-const LISTEN_TIMEOUT_MS = 10000;
+const isStandalone = window.navigator.standalone === true
+  || window.matchMedia('(display-mode: standalone)').matches;
 
 function assistLine(text, kind) {
   const el = $('assist-line');
@@ -866,7 +867,10 @@ function listen() {
     failed = true;
     dictating = true;
     r.abort();
-    assistLine('No te escuché: toca el micrófono del teclado, dime qué poner y luego Buscar');
+    const why = !isIOS ? ''
+      : isStandalone ? ' En iPhone la voz solo funciona abriendo la página en Safari, no desde el ícono de inicio.'
+      : ' En iPhone revisa Ajustes → General → Teclado → Activar dictado.';
+    assistLine(`No te escuché.${why} Mientras, toca el micrófono del teclado y luego Buscar`);
     $('search-input').focus();
   }, LISTEN_TIMEOUT_MS);
   r.onresult = (e) => {
