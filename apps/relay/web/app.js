@@ -32,9 +32,10 @@ function loadStore() {
       phoneName: typeof data.phoneName === 'string' ? data.phoneName : '',
       lastSent: data.lastSent && typeof data.lastSent === 'object' ? data.lastSent : {},
       autoFollow: data.autoFollow !== false,
+      pinned: Array.isArray(data.pinned) ? data.pinned.filter((x) => typeof x === 'string') : [],
     };
   } catch {
-    return { projectors: [], selected: null, phoneName: '', lastSent: {}, autoFollow: true };
+    return { projectors: [], selected: null, phoneName: '', lastSent: {}, autoFollow: true, pinned: [] };
   }
 }
 
@@ -615,17 +616,18 @@ let recognizer = null;
 // the next submit goes to the assistant instead of a plain search.
 let dictating = false;
 
-function openSearch() {
-  if (view === 'search') return;
-  view = 'search';
-  history.pushState({ v: 'search' }, '', '#buscar');
+// Screens pushed over the tabs (Buscar, a playlist's songs): a history entry
+// each, so the phone's back gesture closes them like in the app.
+function pushView(v) {
+  if (view === v) return;
+  if (view !== 'tabs') history.replaceState({ v }, '', `#${v}`);
+  else history.pushState({ v }, '', `#${v}`);
+  view = v;
   render();
-  // Synchronously, inside the tap: iOS only raises the keyboard then.
-  if (!results.length) $('search-input').focus();
 }
 
-function closeSearch() {
-  if (history.state && history.state.v === 'search') history.back();
+function popView() {
+  if (history.state && history.state.v === view) history.back();
   else {
     view = 'tabs';
     render();
@@ -633,15 +635,22 @@ function closeSearch() {
 }
 
 window.addEventListener('popstate', () => {
-  if (view === 'search' && location.hash !== '#buscar') {
-    view = 'tabs';
-    stopListening();
-    render();
-  }
+  const v = (history.state && history.state.v) || 'tabs';
+  if (v === view) return;
+  // A pushed view with nothing to show (e.g. after a reload) goes to the tabs.
+  view = v === 'tracks' && !openList ? 'tabs' : v;
+  stopListening();
+  render();
 });
 
+function openSearch() {
+  pushView('search');
+  // Synchronously, inside the tap: iOS only raises the keyboard then.
+  if (!results.length) $('search-input').focus();
+}
+
 $('btn-search').addEventListener('click', openSearch);
-$('btn-back').addEventListener('click', closeSearch);
+$('btn-back').addEventListener('click', popView);
 
 $('search-input').addEventListener('input', () => {
   $('search-clear').hidden = !$('search-input').value || asking;
@@ -1043,27 +1052,32 @@ function setTab(name) {
   tab = name;
   for (const b of document.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === name);
   render();
+  if (name === 'playlists') loadPlaylists();
 }
 
 function render() {
   const p = current();
-  const inSearch = !!p && view === 'search';
+  const pushed = !!p && view !== 'tabs';
+  const inSearch = pushed && view === 'search';
   $('top').hidden = !p;
-  $('top').classList.toggle('in-search', inSearch);
-  $('btn-back').hidden = !inSearch;
+  $('top').classList.toggle('in-search', pushed);
+  $('btn-back').hidden = !pushed;
   $('btn-search').hidden = inSearch;
-  $('tabs').hidden = !p || inSearch;
-  document.body.classList.toggle('no-tabs', !p || inSearch);
+  $('tabs').hidden = !p || pushed;
+  document.body.classList.toggle('no-tabs', !p || pushed);
   $('view-welcome').hidden = !!p;
-  $('view-now').hidden = !p || inSearch || tab !== 'now';
-  $('view-playlists').hidden = !p || inSearch || tab !== 'playlists';
+  $('view-now').hidden = !p || pushed || tab !== 'now';
+  $('view-playlists').hidden = !p || pushed || tab !== 'playlists';
   $('view-search').hidden = !inSearch;
+  $('view-tracks').hidden = !(pushed && view === 'tracks');
   $('playlists-login').hidden = spotifyLoggedIn();
   $('playlists-body').hidden = !spotifyLoggedIn();
   if (!p) return;
   renderHeader(p);
   renderNow(p);
   if (inSearch) renderSearch();
+  if (!pushed && tab === 'playlists') renderPlaylists();
+  if (pushed && view === 'tracks') renderTracks();
 }
 
 function renderHeader(p) {
@@ -1421,7 +1435,7 @@ if (location.hash.startsWith('#pair?')) {
   const text = location.hash;
   history.replaceState(null, '', location.pathname);
   addFromText(text);
-} else if (location.hash === '#buscar') {
+} else if (location.hash === '#search' || location.hash === '#tracks') {
   history.replaceState(null, '', location.pathname);
 }
 
