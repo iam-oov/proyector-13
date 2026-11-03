@@ -44,6 +44,9 @@ FORWARD_REQUEST_HEADERS = ("authorization", "content-type")
 FORWARD_RESPONSE_HEADERS = ("content-type", "www-authenticate")
 
 REQUEST_TIMEOUT = 15.0
+# Starting a playlist queue: the receiver searches YouTube for the first
+# playable track before it answers, which can take longer.
+SLOW_PATHS = {"/queue": 40.0}
 MAX_BODY = 256 * 1024
 
 
@@ -114,7 +117,7 @@ class Projector:
                 "headers": headers,
                 "body": base64.b64encode(body).decode(),
             })
-            return await asyncio.wait_for(fut, REQUEST_TIMEOUT)
+            return await asyncio.wait_for(fut, SLOW_PATHS.get(path, REQUEST_TIMEOUT))
         finally:
             self.pending.pop(rid, None)
 
@@ -159,12 +162,28 @@ async def _redirect(_: web.Request) -> web.Response:
     raise web.HTTPPermanentRedirect(f"{PREFIX}/")
 
 
+def _spotify_client_id(app: web.Application) -> str:
+    """Public, but kept out of the public repo: SPOTIFY_CLIENT_ID, or the file
+    spotify_client_id in the state directory."""
+    value = os.environ.get("SPOTIFY_CLIENT_ID", "").strip()
+    if not value:
+        try:
+            value = (app[STATE_DIR] / "spotify_client_id").read_text().strip()
+        except OSError:
+            value = ""
+    return value if re.fullmatch(r"[A-Za-z0-9]{16,64}", value) else ""
+
+
 @routes.get(PREFIX + "/")
 async def _index(request: web.Request) -> web.Response:
     # The page names its own version and loads app.js/style.css with ?v=, so
     # a phone never mixes a new page with cached old code, and the version on
     # screen is the code that is really running.
-    html = (WEB_DIR / "index.html").read_text().replace("__VERSION__", request.app[VERSION])
+    html = (
+        (WEB_DIR / "index.html").read_text()
+        .replace("__VERSION__", request.app[VERSION])
+        .replace("__SPOTIFY_CLIENT_ID__", _spotify_client_id(request.app))
+    )
     return web.Response(text=html, content_type="text/html", headers={"cache-control": "no-cache"})
 
 

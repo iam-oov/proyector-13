@@ -223,6 +223,7 @@ async def run(
     out = {"reply": reply, "selected": state["target"].id}
     if state["played"]:
         out["played"] = state["played"]
+        out["results"] = state["results"]
     return out
 
 
@@ -269,7 +270,8 @@ async def _play(said, a, state, ask, search) -> str:
         + f"\n\nResultados:\n{listing}",
         PICK_SCHEMA,
     )
-    v = videos[_int(pick.get("index"), 0, len(videos) - 1)]
+    i = _int(pick.get("index"), 0, len(videos) - 1)
+    v = videos[i]
     body = {"videoId": v["id"], "title": v.get("title") or ""}
     if start:
         body["start"] = start
@@ -277,6 +279,8 @@ async def _play(said, a, state, ask, search) -> str:
     if status != 200 or not res.get("ok"):
         raise Fail(res.get("error") or f"{t.name} no pudo ponerlo")
     state["played"] = {"id": v["id"], "title": v.get("title") or ""}
+    # For "¿No es el video correcto?": the pick first, then the rest.
+    state["results"] = [v] + [x for j, x in enumerate(videos) if j != i]
     return str(pick.get("reply") or f"Pongo {v.get('title')}")
 
 

@@ -1,12 +1,13 @@
 'use strict';
 
 // Projector control PWA served by the relay at www.valdoh.com/proyector.
-// Every call goes through the relay (api/p/<id>/<path>), which hands it to
-// the projector over its WebSocket. The projector checks the QR's Bearer token
-// itself; this page only stores it. UI strings are Spanish.
+// Same design and features as apps/control, minus trading, TVs and the sleep
+// timer. Every projector call goes through the relay (api/p/<id>/<path>),
+// which hands it to the projector over its WebSocket; the projector checks the
+// QR's Bearer token itself. UI strings are Spanish.
 
 const $ = (id) => document.getElementById(id);
-const POLL_MS = 4000;
+const POLL_MS = 3000;
 const SEEK_S = 10;
 
 // ---------------------------------------------------------------------------
@@ -14,6 +15,12 @@ const SEEK_S = 10;
 // must still work for this visit.
 
 const STORE_KEY = 'proyector.v1';
+const ID_RE = /^[a-z0-9]{8,32}$/;
+const TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/;
+
+function validProjector(p) {
+  return p && ID_RE.test(p.id) && TOKEN_RE.test(p.token) && typeof p.name === 'string';
+}
 
 function loadStore() {
   try {
@@ -38,49 +45,64 @@ function saveStore() {
   }
 }
 
-const ID_RE = /^[a-z0-9]{8,32}$/;
-const TOKEN_RE = /^[A-Za-z0-9_-]{16,128}$/;
-
-function validProjector(p) {
-  return p && ID_RE.test(p.id) && TOKEN_RE.test(p.token) && typeof p.name === 'string';
-}
-
 const store = loadStore();
 
-// Live state per projector id: 'unknown' | 'online' | 'offline' | 'unauthorized'.
+// Live state. status per projector id: 'online' | 'offline' | 'unauthorized'
+// (missing = not checked yet).
 const status = {};
 let health = null;
 let volume = null;
+let checked = false;
 let tab = 'now';
+let view = 'tabs';
+let ticks = 0;
+let volDragging = false;
+const announced = new Set();
 
 function current() {
   return store.projectors.find((p) => p.id === store.selected) || store.projectors[0] || null;
 }
 
-// ---------------------------------------------------------------------------
-// Pairing payload: the projector's QR says
-//   proyector://pair?v=1&id=<id>&n=<name>&h=<lan host>&p=<port>&t=<token>
-// The LAN host and port are ignored: this page always goes through the relay.
+function stateOf(p) {
+  return p ? status[p.id] || 'unknown' : 'unknown';
+}
 
-// The projector's QR is now a link to this page with the same payload after
-// the # (so the token never reaches the server):
-//   https://www.valdoh.com/proyector/#pair?v=1&id=…
+// ---------------------------------------------------------------------------
+// Pairing payload. The projector's QR is a link to this page with the payload
+// after the # (so the token never reaches the server):
+//   https://www.valdoh.com/proyector/#pair?v=1&id=…&n=…&h=…&p=…&t=…
+// The old form proyector://pair?… is accepted too. h/p (LAN address) are kept
+// only so "Copiar código" stays readable by the Flutter app.
+
 function parsePairing(raw) {
   let text = String(raw || '').trim();
   const hash = text.indexOf('#pair?');
   if (hash > 0) text = text.slice(hash);
-  const q = text.indexOf('?');
   if (!/^proyector:\/\/pair\?/i.test(text) && !text.startsWith('#pair?') && !text.startsWith('pair?')) {
     throw new Error('Ese código no es de un proyector');
   }
-  const params = new URLSearchParams(text.slice(q + 1));
+  const params = new URLSearchParams(text.slice(text.indexOf('?') + 1));
   const v = Number(params.get('v'));
   if (!v || v > 1) throw new Error('Código de una versión nueva: actualiza el proyector');
   const id = params.get('id') || '';
   const token = params.get('t') || '';
   if (!ID_RE.test(id) || !TOKEN_RE.test(token)) throw new Error('El código está incompleto');
   const name = (params.get('n') || 'Proyector').trim().slice(0, 40) || 'Proyector';
-  return { id, token, name };
+  const out = { id, token, name };
+  const host = (params.get('h') || '').trim();
+  const port = Number(params.get('p'));
+  if (host && !/\s/.test(host) && port > 0 && port < 65536) Object.assign(out, { host, port });
+  return out;
+}
+
+function pairingLink(p) {
+  const q = new URLSearchParams({ v: '1', id: p.id, n: p.name });
+  if (p.host && p.port) {
+    q.set('h', p.host);
+    q.set('p', String(p.port));
+  }
+  q.set('t', p.token);
+  return `${location.origin}${location.pathname}#pair?${q}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,7 +143,7 @@ function errorText(r, p) {
 }
 
 // ---------------------------------------------------------------------------
-// Toast.
+// Toast (the app's floating SnackBar).
 
 let toastTimer = 0;
 function toast(text, { error = false } = {}) {
@@ -130,13 +152,14 @@ function toast(text, { error = false } = {}) {
   el.classList.toggle('error', error);
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, error ? 4500 : 2500);
+  // Long notices need more time to be read.
+  toastTimer = setTimeout(() => { el.hidden = true; }, text.length > 90 ? 6000 : error ? 4500 : 3000);
 }
 
 // ---------------------------------------------------------------------------
 // Sheets.
 
-const sheets = ['sheet-screens', 'sheet-paste', 'sheet-phone'];
+const sheets = ['sheet-screens', 'sheet-menu', 'sheet-add', 'sheet-paste', 'sheet-phone', 'sheet-rename', 'sheet-confirm'];
 let afterPhoneName = null;
 
 function openSheet(id) {
@@ -150,19 +173,21 @@ function closeSheets() {
   afterPhoneName = null;
 }
 
-function askPhoneName(then) {
-  $('phone-input').value = store.phoneName || defaultPhoneName();
-  openSheet('sheet-phone');
-  afterPhoneName = then;
-  setTimeout(() => $('phone-input').focus(), 50);
-}
+$('scrim').addEventListener('click', closeSheets);
 
 function defaultPhoneName() {
   const ua = navigator.userAgent;
   if (/iPhone/.test(ua)) return 'iPhone';
   if (/iPad/.test(ua)) return 'iPad';
   if (/Android/.test(ua)) return 'Android';
-  return 'Teléfono';
+  return 'Mi teléfono';
+}
+
+function askPhoneName(then) {
+  $('phone-input').value = store.phoneName || defaultPhoneName();
+  openSheet('sheet-phone');
+  afterPhoneName = then;
+  $('phone-input').focus();
 }
 
 $('phone-save').addEventListener('click', () => {
@@ -173,13 +198,14 @@ $('phone-save').addEventListener('click', () => {
   }
   store.phoneName = name;
   saveStore();
+  // Every projector shows the new name once it hears from this phone again.
+  announced.clear();
   const then = afterPhoneName;
   closeSheets();
-  renderScreens();
+  renderAddSheet();
   if (then) then();
+  else refresh();
 });
-
-$('scrim').addEventListener('click', closeSheets);
 
 // ---------------------------------------------------------------------------
 // Adding a projector.
@@ -201,18 +227,15 @@ async function addProjector(payload) {
     }
     return;
   }
-  const entry = { id: payload.id, token: payload.token, name: String(r.data.name || payload.name).slice(0, 40) };
+  const entry = { ...payload, name: String(r.data.name || payload.name).slice(0, 40) };
   const at = store.projectors.findIndex((p) => p.id === entry.id);
   if (at >= 0) store.projectors[at] = entry;
   else store.projectors.push(entry);
-  store.selected = entry.id;
+  announced.add(entry.id);
   status[entry.id] = 'online';
-  saveStore();
   closeSheets();
-  toast(`${entry.name} agregado`);
-  setTab('now');
-  render();
-  refresh();
+  toast(`Pantalla "${entry.name}" guardada`);
+  select(entry.id);
 }
 
 function addFromText(text) {
@@ -299,7 +322,6 @@ $('link-toggle').addEventListener('click', () => {
   $('link-box').hidden = false;
   $('paste-input').focus();
 });
-
 $('paste-add').addEventListener('click', () => addFromText($('paste-input').value));
 $('paste-clipboard').addEventListener('click', async () => {
   try {
@@ -337,7 +359,7 @@ async function openScanner() {
     toast('Este navegador no deja usar la cámara. Usa "Tengo un código".', { error: true });
     return;
   }
-  $('scanner-text').textContent = 'Apunta al código QR del proyector';
+  $('scanner-text').textContent = 'Apunta la cámara al QR que muestra el proyector';
   $('scanner').hidden = false;
   try {
     const [stream] = await Promise.all([
@@ -426,188 +448,246 @@ function closeScanner() {
 $('scanner-close').addEventListener('click', closeScanner);
 
 // ---------------------------------------------------------------------------
-// Ahora: what the projector is playing, transport and volume.
+// Polling: what the selected projector plays, its volume, and (less often) the
+// other projectors' dots.
+
+let refreshing = false;
 
 async function refresh() {
   const p = current();
-  if (!p) return;
-  const r = await api(p, 'health');
-  if (p !== current()) return;
-  if (r.status === 200 && r.data.ok) {
-    if (status[p.id] !== 'unauthorized') status[p.id] = 'online';
-    health = r.data;
-    // The projector's name can change on the projector itself.
-    if (r.data.name && r.data.name !== p.name) {
-      p.name = String(r.data.name).slice(0, 40);
-      saveStore();
+  if (!p) {
+    render();
+    return;
+  }
+  if (refreshing) return;
+  refreshing = true;
+  try {
+    const r = await api(p, 'health');
+    if (p !== current()) return;
+    if (r.status === 200 && r.data.ok) {
+      if (r.data.id && r.data.id !== p.id) status[p.id] = 'offline';
+      health = r.data;
+      // The projector owns its name.
+      if (r.data.name && r.data.name !== p.name) {
+        p.name = String(r.data.name).slice(0, 40);
+        saveStore();
+      }
+      // Authenticated: proves the token and fills the slider.
+      const v = await api(p, 'volume');
+      if (p !== current()) return;
+      if (v.status === 200 && v.data.ok) volume = v.data;
+      if (status[p.id] === 'online' && store.phoneName && !announced.has(p.id)) {
+        announced.add(p.id);
+        api(p, 'pair', { method: 'POST', body: { phoneName: store.phoneName } });
+      }
+    } else if (r.status === 0) {
+      // This phone is offline; keep showing the last known state.
+    } else {
+      if (r.status !== 401 && r.status !== 503) status[p.id] = 'offline';
+      health = null;
+      volume = null;
     }
-    if (volume === null) refreshVolume();
-  } else if (r.status === 0) {
-    // This phone is offline; keep showing the last known state.
-  } else {
-    if (r.status !== 401 && r.status !== 503) status[p.id] = 'offline';
-    health = null;
+    checked = true;
+  } finally {
+    refreshing = false;
   }
   render();
 }
 
-async function refreshVolume() {
-  const p = current();
-  if (!p) return;
-  // Also the first authenticated call after opening: a 401 here shows the
-  // "code changed" notice before the user taps anything.
-  const r = await api(p, 'volume');
-  if (p !== current()) return;
-  if (r.status === 200 && r.data.ok) volume = r.data;
-  render();
+async function refreshOthers() {
+  const sel = current();
+  await Promise.all(store.projectors.filter((p) => p !== sel).map(async (p) => {
+    const r = await api(p, 'health');
+    if (r.status === 200 && r.data.id === p.id) {
+      if (status[p.id] !== 'unauthorized') status[p.id] = 'online';
+    } else if (r.status !== 0) {
+      status[p.id] = 'offline';
+    }
+  }));
+  if (!$('sheet-screens').hidden) renderScreens();
+}
+
+// ---------------------------------------------------------------------------
+// Ahora: transport and volume.
+
+function queueMode() {
+  const q = (health && health.queue) || {};
+  return !!(q.active && q.info);
 }
 
 async function media(action) {
   const p = current();
   if (!p) return;
   let r;
-  if (action === 'next') r = await api(p, 'queue', { method: 'POST', body: { next: true } });
-  else if (action === 'back') r = await api(p, 'media', { method: 'POST', body: { action: 'seek', by: -SEEK_S } });
-  else if (action === 'fwd') r = await api(p, 'media', { method: 'POST', body: { action: 'seek', by: SEEK_S } });
-  else if (action === 'toggle') {
+  if (action === 'next') {
+    toast('Buscando la siguiente…');
+    r = await api(p, 'queue', { method: 'POST', body: { next: true } });
+    if (r.status === 200) {
+      if (health) health.queue = { active: !!r.data.info, info: r.data.info || null };
+      toast(r.data.info ? `Sonando en ${p.name}: ${r.data.info}` : 'Cola terminada');
+    }
+  } else if (action === 'back' || action === 'fwd') {
+    r = await api(p, 'media', { method: 'POST', body: { action: 'seek', by: action === 'fwd' ? SEEK_S : -SEEK_S } });
+  } else if (action === 'toggle') {
     const playing = health && health.media && health.media.playing;
     r = await api(p, 'media', { method: 'POST', body: { action: playing ? 'pause' : 'play' } });
     if (r.status === 200 && health && health.media) health.media.playing = !playing;
-  } else r = await api(p, 'media', { method: 'POST', body: { action } });
-
-  if (r.status === 409) toast('No hay un video sonando', { error: true });
-  else if (r.status !== 200) toast(errorText(r, p), { error: true });
-  if (action === 'stop' && r.status === 200) {
-    delete store.lastSent[p.id];
-    saveStore();
+  } else {
+    r = await api(p, 'media', { method: 'POST', body: { action } });
+    if (action === 'stop' && r.status === 200) {
+      delete store.lastSent[p.id];
+      saveStore();
+      if (health) {
+        health.queue = { active: false, info: null };
+        if (health.media) health.media.playing = false;
+      }
+      toast('Detenido');
+    }
   }
+  if (r.status === 409) toast('No hay video sonando en la pantalla', { error: true });
+  else if (r.status !== 200) toast(errorText(r, p), { error: true });
   render();
   setTimeout(refresh, 900);
 }
 
-async function changeVolume(kind) {
+async function setVolume(body) {
   const p = current();
   if (!p) return;
-  const body = kind === 'mute' ? { mute: !(volume && volume.muted) } : { delta: kind === 'up' ? 1 : -1 };
   const r = await api(p, 'volume', { method: 'POST', body });
   if (r.status === 200 && r.data.ok) volume = r.data;
   else toast(errorText(r, p), { error: true });
   renderVolume();
 }
 
-document.addEventListener('click', (e) => {
-  const el = e.target.closest('[data-media],[data-volume],[data-action],[data-tab]');
-  if (!el) return;
-  if (el.dataset.media) media(el.dataset.media);
-  else if (el.dataset.volume) changeVolume(el.dataset.volume);
-  else if (el.dataset.tab) setTab(el.dataset.tab);
-  else if (el.dataset.action === 'scan') openScanner();
-  else if (el.dataset.action === 'paste') openCodeSheet();
-  else if (el.dataset.action === 'rename-phone') askPhoneName(null);
+$('vol-range').addEventListener('input', () => {
+  volDragging = true;
+  paintVolume(Number($('vol-range').value));
 });
+// Sent only on release, like the app's slider.
+$('vol-range').addEventListener('change', () => {
+  volDragging = false;
+  setVolume({ level: Number($('vol-range').value) });
+});
+$('btn-mute').addEventListener('click', () => setVolume({ mute: !(volume && volume.muted) }));
 
 // ---------------------------------------------------------------------------
-// Buscar.
+// Buscar: a screen over the tabs, with the assistant's microphone.
 
 let searching = false;
+let results = [];
+let resultsFromAssistant = false;
+let assistantOn = false;
+let asking = false;
+let recognizer = null;
+// No SpeechRecognition: the keyboard's microphone types into the field, and
+// the next submit goes to the assistant instead of a plain search.
+let dictating = false;
 
-$('search-form').addEventListener('submit', async (e) => {
+function openSearch() {
+  if (view === 'search') return;
+  view = 'search';
+  history.pushState({ v: 'search' }, '', '#buscar');
+  render();
+  // Synchronously, inside the tap: iOS only raises the keyboard then.
+  if (!results.length) $('search-input').focus();
+}
+
+function closeSearch() {
+  if (history.state && history.state.v === 'search') history.back();
+  else {
+    view = 'tabs';
+    render();
+  }
+}
+
+window.addEventListener('popstate', () => {
+  if (view === 'search' && location.hash !== '#buscar') {
+    view = 'tabs';
+    stopListening();
+    render();
+  }
+});
+
+$('btn-search').addEventListener('click', openSearch);
+$('btn-back').addEventListener('click', closeSearch);
+
+$('search-input').addEventListener('input', () => {
+  $('search-clear').hidden = !$('search-input').value || asking;
+});
+$('search-clear').addEventListener('click', () => {
+  $('search-input').value = '';
+  $('search-clear').hidden = true;
+  $('search-input').focus();
+});
+
+$('search-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const q = $('search-input').value.trim();
-  if (!q || searching) return;
+  if (!q) return;
+  if (dictating) {
+    dictating = false;
+    ask(q);
+  } else {
+    search(q);
+  }
+});
+
+async function search(q) {
+  if (searching || asking) return;
   searching = true;
+  resultsFromAssistant = false;
   $('search-input').blur();
-  $('search-hint').textContent = 'Buscando…';
-  $('results').replaceChildren();
+  $('assist-line').hidden = true;
+  $('search-progress').hidden = false;
   try {
     const res = await fetch(`api/search?q=${encodeURIComponent(q)}`, { cache: 'no-store' });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) throw new Error(data.error || 'No pude buscar, intenta otra vez');
-    renderResults(data.results || []);
-    $('search-hint').textContent = data.results && data.results.length
-      ? 'Toca un resultado para ponerlo en el proyector.'
-      : 'No encontré nada con eso. Prueba con otras palabras.';
+    results = data.results || [];
+    if (!results.length) toast('No encontré nada con eso. Prueba con otras palabras.');
   } catch (err) {
-    $('search-hint').textContent = err.message === 'Failed to fetch' ? 'Sin conexión a internet' : err.message;
+    toast(err.message === 'Failed to fetch' ? 'Sin conexión a internet' : err.message, { error: true });
   } finally {
     searching = false;
-  }
-});
-
-function renderResults(results) {
-  const list = $('results');
-  list.replaceChildren();
-  for (const v of results) {
-    const li = document.createElement('li');
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'result';
-
-    const thumb = document.createElement('div');
-    thumb.className = 'thumb';
-    const img = document.createElement('img');
-    img.loading = 'lazy';
-    img.alt = '';
-    img.src = `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/mqdefault.jpg`;
-    thumb.append(img);
-    if (v.duration) {
-      const d = document.createElement('span');
-      d.className = 'dur';
-      d.textContent = v.duration;
-      thumb.append(d);
-    }
-
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    const t = document.createElement('div');
-    t.className = 'title';
-    t.textContent = v.title;
-    const c = document.createElement('div');
-    c.className = 'channel';
-    c.textContent = v.channel || '';
-    meta.append(t, c);
-
-    btn.append(thumb, meta);
-    btn.addEventListener('click', () => play(v, btn));
-    li.append(btn);
-    list.append(li);
+    $('search-progress').hidden = true;
+    renderSearch();
   }
 }
 
-async function play(video, btn) {
+async function play(video) {
   const p = current();
   if (!p) return;
-  btn.disabled = true;
   const r = await api(p, 'play', { method: 'POST', body: { videoId: video.id, title: video.title } });
-  btn.disabled = false;
   if (r.status !== 200 || !r.data.ok) {
     toast(errorText(r, p), { error: true });
     render();
     return;
   }
-  for (const el of document.querySelectorAll('.result.sent')) el.classList.remove('sent');
-  btn.classList.add('sent');
-  store.lastSent[p.id] = { id: video.id, title: video.title, at: Date.now() };
+  // The row and the Ahora card show what was sent, so no toast.
+  store.lastSent[p.id] = { id: video.id, title: video.title, thumb: video.thumb || null, at: Date.now() };
   saveStore();
-  toast(`Listo, sonando en ${p.name}`);
+  renderSearch();
   setTimeout(refresh, 1500);
 }
 
-// ---------------------------------------------------------------------------
 // Voice assistant. The relay does the work (Claude + the projector calls), so
-// the Anthropic key never reaches this page. Speech goes through the browser's
-// SpeechRecognition when there is one; otherwise the text box, where the
-// phone keyboard's own microphone dictates.
+// the Anthropic key never reaches this page.
 
 const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let assistantOn = false;
-let asking = false;
-let recognizer = null;
 
-function assistStatus(text, kind = '') {
-  const el = $('assist-status');
-  el.textContent = text;
-  el.className = `assist-status${kind ? ` ${kind}` : ''}`;
+function assistLine(text, kind) {
+  const el = $('assist-line');
+  el.replaceChildren();
+  if (kind === 'busy') {
+    const s = document.createElement('span');
+    s.className = 'spinner';
+    el.append(s);
+  } else if (kind === 'done') {
+    el.insertAdjacentHTML('beforeend', '<svg><use href="#i-sparkle"/></svg>');
+  }
+  el.append(document.createTextNode(text));
+  el.className = `assist-line${kind ? ` ${kind}` : ''}`;
+  el.hidden = false;
 }
 
 async function ask(text) {
@@ -615,9 +695,12 @@ async function ask(text) {
   const p = current();
   if (!said || !p || asking) return;
   asking = true;
-  $('assist-input').value = said;
-  $('assist-input').blur();
-  assistStatus('Pensando…', 'busy');
+  $('search-input').value = said;
+  $('search-input').blur();
+  $('search-input').disabled = true;
+  $('assist-mic').disabled = true;
+  $('search-clear').hidden = true;
+  assistLine('Pensando…', 'busy');
   try {
     const res = await fetch('api/assistant', {
       method: 'POST',
@@ -631,27 +714,38 @@ async function ask(text) {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.ok) {
-      assistStatus(data.error || 'No pude, intenta otra vez', 'error');
+      assistLine(data.error || 'No pude, intenta otra vez', 'error');
       return;
     }
-    $('assist-input').value = '';
-    assistStatus(data.reply || 'Listo', 'done');
+    assistLine(data.reply || 'Listo', 'done');
     // "Ahora en la recámara": the assistant changed projector.
     if (data.selected && data.selected !== store.selected && store.projectors.some((x) => x.id === data.selected)) {
       select(data.selected);
     }
     const sel = current();
     if (data.played && sel) {
-      store.lastSent[sel.id] = { id: data.played.id, title: data.played.title, at: Date.now() };
+      const first = (data.results || []).find((v) => v.id === data.played.id);
+      store.lastSent[sel.id] = { ...data.played, thumb: first ? first.thumb : null, at: Date.now() };
       saveStore();
+    }
+    if (Array.isArray(data.results) && data.results.length) {
+      results = data.results;
+      resultsFromAssistant = true;
     }
     volume = null;
     setTimeout(refresh, 1200);
   } catch {
-    assistStatus('Sin conexión a internet', 'error');
+    assistLine('Sin conexión a internet', 'error');
   } finally {
     asking = false;
+    $('search-input').disabled = false;
+    $('assist-mic').disabled = false;
+    renderSearch();
   }
+}
+
+function stopListening() {
+  if (recognizer) recognizer.abort();
 }
 
 function listen() {
@@ -661,9 +755,10 @@ function listen() {
     return;
   }
   if (!Recognition) {
-    // The keyboard has its own microphone key for dictation.
-    $('assist-input').focus();
-    assistStatus('Toca el micrófono del teclado y dime qué poner');
+    dictating = true;
+    $('search-input').value = '';
+    $('search-input').focus();
+    assistLine('Toca el micrófono del teclado, dime qué poner y luego Buscar');
     return;
   }
   const r = new Recognition();
@@ -671,46 +766,207 @@ function listen() {
   r.interimResults = true;
   r.continuous = false;
   let finalText = '';
+  let failed = false;
   r.onresult = (e) => {
     let text = '';
     for (const res of e.results) {
       text += res[0].transcript;
       if (res.isFinal) finalText = text;
     }
-    $('assist-input').value = text;
+    $('search-input').value = text;
   };
   r.onerror = (e) => {
+    failed = true;
     if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-      assistStatus('Sin permiso para el micrófono: usa el micrófono del teclado', 'error');
-      $('assist-input').focus();
+      dictating = true;
+      assistLine('Sin permiso para el micrófono: usa el micrófono del teclado y luego Buscar', 'error');
+      $('search-input').focus();
     } else if (e.error === 'no-speech') {
-      assistStatus('No te escuché, intenta otra vez');
+      assistLine('No te escuché, intenta otra vez');
     }
   };
   r.onend = () => {
     recognizer = null;
-    $('assist-mic').classList.remove('listening');
-    const text = finalText || $('assist-input').value;
-    if (text.trim()) ask(text);
+    setListening(false);
+    const text = finalText || $('search-input').value;
+    if (!failed && text.trim()) ask(text);
   };
   recognizer = r;
-  $('assist-input').value = '';
-  $('assist-mic').classList.add('listening');
-  assistStatus('Te escucho…', 'busy');
+  $('search-input').value = '';
+  setListening(true);
   try {
     r.start();
   } catch {
     recognizer = null;
-    $('assist-mic').classList.remove('listening');
-    $('assist-input').focus();
-    assistStatus('Toca el micrófono del teclado y dime qué poner');
+    setListening(false);
+    dictating = true;
+    $('search-input').focus();
+    assistLine('Toca el micrófono del teclado, dime qué poner y luego Buscar');
   }
 }
 
+function setListening(on) {
+  $('assist-mic').classList.toggle('listening', on);
+  $('icon-mic').toggleAttribute('hidden', on);
+  $('icon-eq').toggleAttribute('hidden', !on);
+  $('search-input').placeholder = on ? 'Te escucho…' : 'Canción o artista';
+  if (on) $('assist-line').hidden = true;
+}
+
 $('assist-mic').addEventListener('click', listen);
-$('assist-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  ask($('assist-input').value);
+
+// ---------------------------------------------------------------------------
+// Screens: pick, rename, copy code, remove.
+
+function select(id) {
+  if (store.selected !== id) {
+    health = null;
+    volume = null;
+    checked = false;
+  }
+  store.selected = id;
+  saveStore();
+  closeSheets();
+  render();
+  refresh();
+}
+
+function openScreens() {
+  renderScreens();
+  openSheet('sheet-screens');
+  checkVersion();
+  refreshOthers();
+}
+
+let menuFor = null;
+
+function openMenu(p) {
+  menuFor = p;
+  $('menu-title').textContent = p.name;
+  const items = $('menu-items');
+  items.replaceChildren();
+  const add = (label, fn, danger = false) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    if (danger) b.className = 'danger';
+    b.addEventListener('click', fn);
+    items.append(b);
+  };
+  add('Renombrar', () => {
+    $('rename-input').value = p.name;
+    openSheet('sheet-rename');
+    $('rename-input').focus();
+  });
+  add('Copiar código (para otro teléfono)', () => copyCode(p));
+  add('Eliminar', () => {
+    $('confirm-title').textContent = `¿Eliminar ${p.name}?`;
+    $('confirm-text').textContent = 'El proyector deja de seguir a Spotify y se corta su cola. Para volver a usarlo hay que escanear su QR.';
+    openSheet('sheet-confirm');
+  }, true);
+  openSheet('sheet-menu');
+}
+
+$('rename-save').addEventListener('click', async () => {
+  const p = menuFor;
+  const name = $('rename-input').value.trim().slice(0, 40);
+  if (!p || !name) {
+    $('rename-input').focus();
+    return;
+  }
+  closeSheets();
+  // The projector owns its name: rename it there when it answers.
+  if (stateOf(p) === 'online') {
+    const r = await api(p, 'pair', {
+      method: 'POST',
+      body: { phoneName: store.phoneName || defaultPhoneName(), screenName: name },
+    });
+    if (r.status === 200 && r.data.ok) p.name = String(r.data.name || name).slice(0, 40);
+    else {
+      toast(errorText(r, p), { error: true });
+      p.name = name;
+    }
+  } else {
+    p.name = name;
+  }
+  saveStore();
+  render();
+});
+
+async function copyCode(p) {
+  closeSheets();
+  const link = pairingLink(p);
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Proyector', text: `Para controlar ${p.name}`, url: link });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    toast('Código copiado: mándalo por WhatsApp; al abrirlo en el otro teléfono se agrega solo');
+  } catch {
+    toast('No pude copiar el código', { error: true });
+  }
+}
+
+$('confirm-ok').addEventListener('click', () => {
+  if (menuFor) removeProjector(menuFor);
+});
+
+async function removeProjector(p) {
+  closeSheets();
+  // The projector stops following Spotify, cuts its queue and forgets this
+  // phone. At most 4 s: a projector that is off must not block the removal.
+  const calls = [
+    api(p, 'spotify', { method: 'POST', body: { unlink: true } }).then((r) => r.status === 200),
+    api(p, 'queue', { method: 'POST', body: { stop: true } }).then((r) => r.status === 200),
+  ];
+  if (store.phoneName) {
+    calls.push(api(p, 'unpair', { method: 'POST', body: { phoneName: store.phoneName } }).then(() => true));
+  }
+  const reached = await Promise.race([
+    Promise.all(calls).then((all) => all.every(Boolean)),
+    new Promise((resolve) => setTimeout(() => resolve(false), 4000)),
+  ]);
+  store.projectors = store.projectors.filter((x) => x.id !== p.id);
+  delete store.lastSent[p.id];
+  delete status[p.id];
+  if (store.selected === p.id) {
+    store.selected = store.projectors[0] ? store.projectors[0].id : null;
+    health = null;
+    volume = null;
+    checked = false;
+  }
+  saveStore();
+  toast(reached
+    ? `${p.name} desvinculada: para volver a usarla escanea su QR`
+    : `Borré ${p.name}, pero no respondió: si seguía a Spotify, lo sigue. Apágalo en el proyector con "Dejar de seguir a Spotify" o, cuando prenda, escanea su QR y elimínalo otra vez`);
+  render();
+  refresh();
+}
+
+// ---------------------------------------------------------------------------
+// Taps.
+
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-media],[data-action],[data-tab]');
+  if (!el) return;
+  if (el.dataset.media) media(el.dataset.media);
+  else if (el.dataset.tab) setTab(el.dataset.tab);
+  else if (el.dataset.action === 'scan') openScanner();
+  else if (el.dataset.action === 'paste') openCodeSheet();
+  else if (el.dataset.action === 'rename-phone') askPhoneName(null);
+  else if (el.dataset.action === 'search') openSearch();
+  else if (el.dataset.action === 'close') closeSheets();
+});
+
+$('screen-pick').addEventListener('click', openScreens);
+$('btn-add').addEventListener('click', () => {
+  renderAddSheet();
+  openSheet('sheet-add');
 });
 
 // ---------------------------------------------------------------------------
@@ -720,77 +976,108 @@ function setTab(name) {
   tab = name;
   for (const b of document.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === name);
   render();
-  if (name === 'search' && !$('results').children.length) setTimeout(() => $('search-input').focus(), 50);
-  if (name === 'now') refresh();
 }
 
 function render() {
   const p = current();
-  $('tabs').hidden = !p;
-  $('screen-chip').hidden = !p;
+  const inSearch = !!p && view === 'search';
+  $('top').hidden = !p;
+  $('top').classList.toggle('in-search', inSearch);
+  $('btn-back').hidden = !inSearch;
+  $('btn-search').hidden = inSearch;
+  $('tabs').hidden = !p || inSearch;
+  document.body.classList.toggle('no-tabs', !p || inSearch);
   $('view-welcome').hidden = !!p;
-  $('view-now').hidden = !p || tab !== 'now';
-  $('view-search').hidden = !p || tab !== 'search';
-  $('assist').hidden = !assistantOn;
+  $('view-now').hidden = !p || inSearch || tab !== 'now';
+  $('view-playlists').hidden = !p || inSearch || tab !== 'playlists';
+  $('view-search').hidden = !inSearch;
   if (!p) return;
-
-  const st = status[p.id] || 'unknown';
-  $('screen-name').textContent = p.name;
-  $('screen-dot').className = `dot ${st === 'online' ? 'on' : st === 'unknown' ? '' : 'off'}`;
-  renderNow(p, st);
+  renderHeader(p);
+  renderNow(p);
+  if (inSearch) renderSearch();
 }
 
-function renderNow(p, st) {
-  const ok = st === 'online' || st === 'unknown';
-  $('now-offline').hidden = ok;
-  $('offline-rescan').hidden = st !== 'unauthorized';
-  if (st === 'unauthorized') {
-    $('offline-title').textContent = `El código de ${p.name} cambió`;
-    $('offline-text').textContent = 'Alguien generó un código nuevo en el proyector. Abre "Vincular teléfono" en el proyector y escanea el QR otra vez.';
-  } else {
-    $('offline-title').textContent = `${p.name} no está conectado`;
-    $('offline-text').textContent = 'Revisa que esté prendido y con internet. Esto se actualiza solo.';
-  }
-  for (const el of document.querySelectorAll('#view-now .now, #view-now .volume')) el.style.opacity = ok ? '' : '.45';
+function renderHeader(p) {
+  const st = stateOf(p);
+  $('screen-name').textContent = p.name;
+  $('screen-dot').className = `dot big${st === 'online' ? ' on' : ''}`;
+  // Only when something is wrong: online is already the green dot.
+  const problem = !checked ? 'revisando…'
+    : st === 'unauthorized' ? 'el código cambió'
+      : st === 'online' ? '' : 'sin respuesta';
+  $('screen-problem').textContent = problem;
+  $('screen-problem').hidden = !problem;
+}
 
+function renderNow(p) {
+  const st = stateOf(p);
+  const online = st === 'online';
   const m = (health && health.media) || {};
   const q = (health && health.queue) || {};
-  const sent = store.lastSent[p.id];
-  // The projector reports the playing title, not the video id; reuse the
-  // thumbnail of what this phone sent last when the titles match.
-  const title = m.title || (sent && sent.title) || '';
-  const art = $('now-art');
-  const showSent = sent && (!m.title || sameTitle(m.title, sent.title));
-  const want = showSent ? `https://i.ytimg.com/vi/${encodeURIComponent(sent.id)}/hqdefault.jpg` : '';
-  const img = art.querySelector('img');
-  if (want && (!img || img.dataset.src !== want)) {
-    const el = document.createElement('img');
-    el.alt = '';
-    el.src = want;
-    el.dataset.src = want;
-    art.replaceChildren(el);
-  } else if (!want && img) {
-    art.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>';
+  const queue = queueMode();
+
+  $('now-offline').hidden = !checked || online;
+  $('offline-rescan').hidden = st !== 'unauthorized';
+  $('offline-text').textContent = st === 'unauthorized'
+    ? `El código de ${p.name} cambió. En el proyector abre "Vincular teléfono" y escanea el QR otra vez.`
+    : `${p.name} no responde. Revisa que esté prendido y con internet; esto se actualiza solo.`;
+
+  const empty = !queue && (!online || !m.title);
+  $('now-empty').hidden = !empty;
+  $('now-playing').hidden = empty;
+  $('empty-text').textContent = `Pon música en Spotify y ${p.name} cambia el video sola, o busca un video para mandarlo.`;
+
+  if (!empty) {
+    // The projector reports the playing title, not the video id; reuse the
+    // thumbnail of what this phone sent when the titles match.
+    const sent = store.lastSent[p.id];
+    const thumb = !queue && sent && m.title && sameTitle(m.title, sent.title)
+      ? sent.thumb || `https://i.ytimg.com/vi/${encodeURIComponent(sent.id)}/hqdefault.jpg`
+      : '';
+    const art = $('hero-art');
+    const img = art.querySelector('img');
+    if (thumb && (!img || img.dataset.src !== thumb)) {
+      const el = document.createElement('img');
+      el.alt = '';
+      el.src = thumb;
+      el.dataset.src = thumb;
+      el.onerror = () => art.replaceChildren(placeholder(queue));
+      art.replaceChildren(el);
+    } else if (!thumb) {
+      art.replaceChildren(placeholder(queue));
+    }
+    const live = !!m.title;
+    const chip = $('hero-chip');
+    chip.hidden = !online;
+    chip.className = `live-chip on-hero${live ? ' on with-icon' : ''}`;
+    chip.querySelector('svg').toggleAttribute('hidden', !live);
+    $('hero-chip-text').textContent = live ? `Reproduciéndose en ${p.name}` : `No en ${p.name}`;
+    $('now-title').textContent = queue ? m.title || 'Buscando el video…' : m.title || 'Nada sonando';
+    $('now-sub').textContent = queue ? q.info : `En ${p.name}`;
   }
 
-  const state = $('now-state');
-  if (!title) {
-    state.textContent = 'Nada sonando';
-    state.className = 'now-state';
-    $('now-title').textContent = 'Busca algo para ponerlo en el proyector';
-  } else {
-    state.textContent = m.playing ? `Reproduciéndose en ${p.name}` : 'En pausa';
-    state.className = `now-state${m.playing ? ' live' : ''}`;
-    $('now-title').textContent = title;
+  $('transport').classList.toggle('dimmed', empty);
+  const has = online && !!m.title;
+  for (const b of document.querySelectorAll('#transport [data-media]')) {
+    const a = b.dataset.media;
+    b.disabled = !online || (a === 'stop' ? !(queue || m.title) : a === 'next' ? !queue : !has);
   }
-  $('now-queue').hidden = !(q.active && q.info);
-  $('now-queue').textContent = q.info || '';
-  $('btn-next').hidden = !q.active;
-  // SVG elements have no `hidden` property; set the attribute.
   $('icon-play').toggleAttribute('hidden', !!m.playing);
   $('icon-pause').toggleAttribute('hidden', !m.playing);
-  $('btn-toggle').setAttribute('aria-label', m.playing ? 'Pausar' : 'Reproducir');
+  $('btn-toggle').setAttribute('aria-label', m.playing ? 'Pausar' : 'Reanudar');
+
+  $('volume').hidden = !(online && volume);
   renderVolume();
+}
+
+function placeholder(queue) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('class', 'ph');
+  const use = document.createElementNS(ns, 'use');
+  use.setAttribute('href', queue ? '#i-queue-music' : '#i-display');
+  svg.append(use);
+  return svg;
 }
 
 function sameTitle(a, b) {
@@ -800,90 +1087,132 @@ function sameTitle(a, b) {
   return !!x && !!y && (x.includes(y) || y.includes(x));
 }
 
+function paintVolume(level) {
+  const max = (volume && volume.max) || 15;
+  $('vol-range').style.setProperty('--fill', `${(level / max) * 100}%`);
+  $('vol-level').textContent = volume && volume.muted ? '—' : String(level);
+}
+
 function renderVolume() {
   const v = volume;
-  const pct = v && v.max ? Math.round((v.level / v.max) * 100) : 0;
-  $('vol-fill').style.width = `${pct}%`;
-  document.querySelector('.volume').classList.toggle('muted', !!(v && v.muted));
-  $('btn-mute').classList.toggle('active', !!(v && v.muted));
-  $('btn-mute').setAttribute('aria-label', v && v.muted ? 'Quitar silencio' : 'Silenciar');
+  if (!v) return;
+  const range = $('vol-range');
+  range.max = String(v.max || 15);
+  if (!volDragging) range.value = String(v.level);
+  paintVolume(volDragging ? Number(range.value) : v.level);
+  $('icon-vol').querySelector('use').setAttribute('href', v.muted ? '#i-vol-off' : '#i-vol-mute');
+  $('btn-mute').setAttribute('aria-label', v.muted ? 'Quitar silencio' : 'Silenciar');
+}
+
+function renderSearch() {
+  const p = current();
+  if (!p) return;
+  $('assist-mic').hidden = !assistantOn;
+  $('search-empty').hidden = results.length > 0 || searching;
+  $('search-empty').textContent = assistantOn
+    ? `Escribe una canción y elige el video, o toca el micrófono y pide algo: "música para la playa". Va a ${p.name}.`
+    : `Escribe qué quieres ver y toca un resultado para mandarlo a ${p.name}.`;
+  const sent = store.lastSent[p.id];
+  const enabled = stateOf(p) !== 'offline' && stateOf(p) !== 'unauthorized' && !asking;
+  const list = $('results');
+  list.replaceChildren();
+  results.forEach((v, i) => {
+    if (resultsFromAssistant && i === 1) {
+      const label = document.createElement('li');
+      label.className = 'label-row';
+      label.innerHTML = '<span class="section-label">¿No es el video correcto?</span>';
+      list.append(label);
+    }
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    const isSent = !!sent && sent.id === v.id;
+    btn.className = `result${isSent ? ' sent' : ''}`;
+    btn.disabled = !enabled;
+
+    const thumb = document.createElement('div');
+    thumb.className = 'thumb';
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.alt = '';
+    img.src = `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/mqdefault.jpg`;
+    thumb.append(img);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const t = document.createElement('div');
+    t.className = 'title';
+    t.textContent = v.title;
+    meta.append(t);
+    if (isSent) {
+      const chip = document.createElement('span');
+      chip.className = 'live-chip on';
+      chip.textContent = `En ${p.name}`;
+      meta.append(chip);
+    } else {
+      const d = document.createElement('div');
+      d.className = 'details';
+      d.textContent = [v.channel, v.duration].filter(Boolean).join(' · ');
+      meta.append(d);
+    }
+
+    btn.append(thumb, meta);
+    btn.addEventListener('click', () => play(v));
+    li.append(btn);
+    list.append(li);
+  });
 }
 
 function renderScreens() {
   const list = $('screens-list');
   list.replaceChildren();
+  if (!store.projectors.length) {
+    const li = document.createElement('li');
+    li.className = 'empty-devices';
+    li.textContent = 'Todavía no hay pantallas. Agrega una con el + junto al nombre.';
+    list.append(li);
+  }
   const sel = current();
   for (const p of store.projectors) {
+    const st = stateOf(p);
     const li = document.createElement('li');
-    li.className = `screen-row${sel && sel.id === p.id ? ' selected' : ''}`;
+    li.className = `device${sel && sel.id === p.id ? ' selected' : ''}${st === 'online' ? ' online' : ''}`;
+
     const pick = document.createElement('button');
     pick.type = 'button';
     pick.className = 'pick';
-    const dot = document.createElement('span');
-    const st = status[p.id] || 'unknown';
-    dot.className = `dot ${st === 'online' ? 'on' : st === 'unknown' ? '' : 'off'}`;
-    const name = document.createElement('span');
-    name.textContent = p.name;
-    pick.append(dot, name);
+    pick.insertAdjacentHTML('beforeend', '<svg><use href="#i-videocam"/></svg>');
+    const names = document.createElement('span');
+    names.className = 'names';
+    const b = document.createElement('b');
+    b.textContent = p.name;
+    const small = document.createElement('small');
+    small.textContent = 'Proyector';
+    names.append(b, small);
+    pick.append(names);
     pick.addEventListener('click', () => select(p.id));
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.className = 'remove';
-    remove.textContent = 'Quitar';
-    remove.addEventListener('click', () => removeProjector(p, remove));
-    li.append(pick, remove);
+
+    const chip = document.createElement('span');
+    chip.className = `live-chip${st === 'online' ? ' on' : ''}`;
+    chip.textContent = st === 'online' ? 'En línea'
+      : st === 'unauthorized' ? 'Código cambiado'
+        : st === 'unknown' ? 'Revisando…' : 'Sin respuesta';
+
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'icon-btn';
+    more.setAttribute('aria-label', `Opciones de ${p.name}`);
+    more.insertAdjacentHTML('beforeend', '<svg><use href="#i-more"/></svg>');
+    more.addEventListener('click', () => openMenu(p));
+
+    li.append(pick, chip, more);
     list.append(li);
   }
-  $('phone-name-label').textContent = store.phoneName || defaultPhoneName();
 }
 
-function select(id) {
-  store.selected = id;
-  health = null;
-  volume = null;
-  saveStore();
-  closeSheets();
-  render();
-  refresh();
+function renderAddSheet() {
+  $('phone-name-label').textContent = store.phoneName || 'Sin nombre';
 }
-
-function removeProjector(p, btn) {
-  // Two taps instead of confirm(): a native dialog blocks the page.
-  if (btn.dataset.armed !== '1') {
-    btn.dataset.armed = '1';
-    btn.textContent = '¿Seguro?';
-    setTimeout(() => { btn.dataset.armed = ''; btn.textContent = 'Quitar'; }, 3000);
-    return;
-  }
-  // Best effort: the projector forgets this phone and stops what it sent.
-  if (store.phoneName) api(p, 'unpair', { method: 'POST', body: { phoneName: store.phoneName } });
-  store.projectors = store.projectors.filter((x) => x.id !== p.id);
-  delete store.lastSent[p.id];
-  if (store.selected === p.id) {
-    store.selected = store.projectors[0] ? store.projectors[0].id : null;
-    health = null;
-    volume = null;
-  }
-  saveStore();
-  renderScreens();
-  render();
-  if (!store.projectors.length) closeSheets();
-  else refresh();
-}
-
-$('screen-chip').addEventListener('click', async () => {
-  renderScreens();
-  openSheet('sheet-screens');
-  checkVersion();
-  // Refresh every projector's dot while the list is open.
-  await Promise.all(store.projectors.map(async (p) => {
-    const r = await api(p, 'health');
-    if (r.status === 200 && status[p.id] !== 'unauthorized') status[p.id] = 'online';
-    else if (r.status !== 0 && r.status !== 200) status[p.id] = 'offline';
-  }));
-  if (!$('sheet-screens').hidden) renderScreens();
-  render();
-});
 
 // ---------------------------------------------------------------------------
 // Version. The relay writes it into the page and loads app.js with ?v=, so
@@ -898,7 +1227,7 @@ function renderVersion() {
   const el = $('app-ver');
   const stale = serverVersion && APP_VERSION !== 'dev' && serverVersion !== APP_VERSION;
   el.classList.toggle('stale', !!stale);
-  el.textContent = stale ? 'Nueva versión · tocar' : APP_VERSION;
+  el.textContent = stale ? 'Nueva versión · tocar' : `versión ${APP_VERSION}`;
   $('version').textContent = stale
     ? `versión ${APP_VERSION} (hay una nueva: ${serverVersion})`
     : `versión ${APP_VERSION}`;
@@ -910,7 +1239,7 @@ async function checkVersion() {
     if (typeof v.version === 'string') serverVersion = v.version;
     if (typeof v.assistant === 'boolean' && v.assistant !== assistantOn) {
       assistantOn = v.assistant;
-      render();
+      renderSearch();
     }
   } catch {
     // Offline: keep what we knew.
@@ -924,10 +1253,13 @@ $('app-ver').addEventListener('click', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Polling only while Ahora is on screen.
+// Polling every 3 s while the page is visible, like the app; the other
+// projectors' dots every 4th time.
 
 setInterval(() => {
-  if (document.visibilityState === 'visible' && tab === 'now' && current()) refresh();
+  if (document.visibilityState !== 'visible' || !current()) return;
+  refresh();
+  if (++ticks % 4 === 0) refreshOthers();
 }, POLL_MS);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
@@ -936,11 +1268,14 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-// A pairing link in the address (#pair?v=1&id=…), for a future https QR.
+// A pairing link in the address (#pair?v=1&id=…): the projector's QR opened
+// with the phone's camera.
 if (location.hash.startsWith('#pair?')) {
   const text = location.hash;
   history.replaceState(null, '', location.pathname);
   addFromText(text);
+} else if (location.hash === '#buscar') {
+  history.replaceState(null, '', location.pathname);
 }
 
 render();

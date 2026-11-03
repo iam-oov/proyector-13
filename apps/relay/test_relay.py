@@ -299,6 +299,7 @@ async def test_assistant_plays_and_sets_volume(aiohttp_client, tmp_path):
     assert res.status == 200, data
     assert data["reply"] == "Pongo cumbias y subo el volumen"
     assert data["played"] == {"id": "b" * 11, "title": "Otro"}
+    assert [v["id"] for v in data["results"]] == ["b" * 11, VIDEO["id"]]
     # Context tells Claude the volume scale; the phone's token goes with every call.
     assert "Volumen: 5 de 15" in asked[0]
     assert all(auth == f"Bearer {TOKEN}" for _, _, auth in seen)
@@ -339,3 +340,17 @@ async def test_assistant_needs_key_and_known_projector(aiohttp_client, tmp_path,
     assert res.status == 400
     res = await client.post("/proyector/api/assistant", json=said("hola"))
     assert res.status == 422  # projector not connected
+
+
+async def test_index_spotify_client_id_from_state_file(aiohttp_client, tmp_path, monkeypatch):
+    monkeypatch.delenv("SPOTIFY_CLIENT_ID", raising=False)
+    client = await aiohttp_client(create_app(tmp_path / "keys.json"))
+    html = await (await client.get("/proyector/")).text()
+    assert '<meta name="spotify-client-id" content="">' in html
+    (tmp_path / "spotify_client_id").write_text("abcdef0123456789abcdef0123456789\n")
+    html = await (await client.get("/proyector/")).text()
+    assert 'content="abcdef0123456789abcdef0123456789"' in html
+
+
+def test_queue_gets_a_longer_timeout():
+    assert relay.SLOW_PATHS["/queue"] > relay.REQUEST_TIMEOUT
