@@ -759,7 +759,14 @@ async function play(video) {
 // Voice assistant. The relay does the work (Claude + the projector calls), so
 // the Anthropic key never reaches this page.
 
-const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+// iPhone and iPad: Safari exposes webkitSpeechRecognition but it hangs with no
+// transcript (home-screen web apps, Dictation off, iOS 17+ reports), so they
+// go straight to the keyboard's microphone, which always works there.
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const Recognition = isIOS ? null : (window.SpeechRecognition || window.webkitSpeechRecognition);
+// Listening this long with no words at all: give up and offer the keyboard.
+const LISTEN_TIMEOUT_MS = 10000;
 
 function assistLine(text, kind) {
   const el = $('assist-line');
@@ -853,7 +860,17 @@ function listen() {
   r.continuous = false;
   let finalText = '';
   let failed = false;
+  let heard = false;
+  const watchdog = setTimeout(() => {
+    if (heard) return;
+    failed = true;
+    dictating = true;
+    r.abort();
+    assistLine('No te escuché: toca el micrófono del teclado, dime qué poner y luego Buscar');
+    $('search-input').focus();
+  }, LISTEN_TIMEOUT_MS);
   r.onresult = (e) => {
+    heard = true;
     let text = '';
     for (const res of e.results) {
       text += res[0].transcript;
@@ -872,6 +889,7 @@ function listen() {
     }
   };
   r.onend = () => {
+    clearTimeout(watchdog);
     recognizer = null;
     setListening(false);
     const text = finalText || $('search-input').value;
