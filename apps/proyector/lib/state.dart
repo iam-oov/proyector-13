@@ -21,6 +21,16 @@ class ReceiverState extends ChangeNotifier {
 
   ReceiverPanel panel = ReceiverPanel.home;
 
+  /// Connected to the relay (www.valdoh.com): phones can reach it from any
+  /// network. Shown as the dot next to the Wi-Fi on the home screen.
+  bool relayOnline = false;
+
+  void setRelayOnline(bool on) {
+    if (relayOnline == on) return;
+    relayOnline = on;
+    notifyListeners();
+  }
+
   /// Si nuestra app está al frente (si no, normalmente YouTube).
   bool appInForeground = true;
   List<Trade> trades = [];

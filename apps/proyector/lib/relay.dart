@@ -80,6 +80,7 @@ class RelayClient {
         debugPrint('relay: $e');
       }
       online = false;
+      state.setRelayOnline(false);
       _connectedId = null;
       if (_stopped) break;
       final wait = _backoff[attempt.clamp(0, _backoff.length - 1)];
@@ -112,6 +113,7 @@ class RelayClient {
       switch (msg['type']) {
         case 'welcome':
           online = true;
+          state.setRelayOnline(true);
           debugPrint('relay: online as ${identity.id} (relay ${msg['version']})');
           // The relay forgets codes on every reconnect.
           _sendCode();

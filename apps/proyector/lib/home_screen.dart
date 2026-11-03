@@ -437,7 +437,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onTap: _nextTheme,
         ),
         const Spacer(),
-        const ConnectivityRow(),
+        ConnectivityRow(serverOnline: state.relayOnline),
       ],
     );
   }
@@ -686,8 +686,12 @@ class IdleCard extends StatelessWidget {
 }
 
 /// Wi-Fi (nombre) y Bluetooth conectados; cada 10 s. Sin Wi-Fi, en rojo.
+/// First, a dot for the server: green while the relay (www.valdoh.com) is
+/// connected, so phones reach it from anywhere; red when it is not.
 class ConnectivityRow extends StatefulWidget {
-  const ConnectivityRow({super.key});
+  const ConnectivityRow({super.key, this.serverOnline = false});
+
+  final bool serverOnline;
 
   @override
   State<ConnectivityRow> createState() => _ConnectivityRowState();
@@ -740,6 +744,18 @@ class _ConnectivityRowState extends State<ConnectivityRow> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
+        Semantics(
+          label: widget.serverOnline ? 'Conectado al servidor' : 'Sin conexión al servidor',
+          child: Container(
+            width: 10,
+            height: 10,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: widget.serverOnline ? p.up : p.error,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
         Icon(
           wifi == null
               ? Icons.wifi_off
