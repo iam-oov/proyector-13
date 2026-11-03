@@ -177,12 +177,16 @@ class ReceiverState extends ChangeNotifier {
   Future<void> Function(bool on)? toggleFollowing;
   bool spotifyLinked = false;
   bool spotifyFollowing = false;
+  /// Spotify display name of the linked account, so the phone can say whose
+  /// Spotify this projector follows. Null when unknown (linked by an old page).
+  String? spotifyAccount;
   Track? nowPlaying;
 
   /// Solo notifica si algo visible cambió (se llama cada 5 s).
   void setSpotify({
     bool? linked,
     bool? following,
+    String? account,
     Track? nowPlaying,
     bool clearNowPlaying = false,
   }) {
@@ -191,6 +195,8 @@ class ReceiverState extends ChangeNotifier {
     final before = snap();
     if (linked != null) spotifyLinked = linked;
     if (following != null) spotifyFollowing = following;
+    if (account != null) spotifyAccount = account.isEmpty ? null : account;
+    if (linked == false) spotifyAccount = null;
     if (nowPlaying != null) this.nowPlaying = nowPlaying;
     if (clearNowPlaying || linked == false) this.nowPlaying = null;
     if (snap() != before) notifyListeners();

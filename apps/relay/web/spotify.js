@@ -71,6 +71,7 @@ function dropSpotify() {
   playlists = null;
   playlistTracks.clear();
   spotifyMe = null;
+  spotifyName = null;
   savePlaylistId = null;
 }
 
@@ -184,16 +185,37 @@ async function spotifyCallback() {
     toast('Esa pantalla ya no está en la lista', { error: true });
     return true;
   }
-  const r = await api(p, 'spotify', { method: 'POST', body: { link: { clientId: spotifyClientId, token } } });
+  const account = await accountName(token.access_token);
+  const r = await api(p, 'spotify', { method: 'POST', body: { link: { clientId: spotifyClientId, token, account } } });
   if (r.status === 200 && r.data.ok) {
-    if (p === current() && health) health.spotify = { linked: !!r.data.linked, following: !!r.data.following };
-    toast(`${p.name} ya sigue a Spotify por su cuenta`);
+    if (p === current() && health) health.spotify = spotifyInfo(r.data);
+    toast(`${p.name} ya sigue el Spotify de ${account || 'esa cuenta'}, aunque guardes el teléfono`);
   } else {
     toast(errorText(r, p), { error: true });
   }
   render();
   return true;
 }
+
+/// The display name of the account behind [accessToken] ("Osvaldo"), or ''.
+async function accountName(token) {
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me', { headers: { authorization: `Bearer ${token}` } });
+    const j = res.ok ? await res.json() : {};
+    return String(j.display_name || j.id || '').slice(0, 60);
+  } catch {
+    return '';
+  }
+}
+
+/// health.spotify / POST spotify answer, with the account an older receiver
+/// does not send.
+function spotifyInfo(d) {
+  return { linked: !!d.linked, following: !!d.following, account: typeof d.account === 'string' ? d.account : null };
+}
+
+// This phone's account name, for "sigue el Spotify de …".
+let spotifyName = null;
 
 async function accessToken() {
   const t = spToken;
@@ -263,6 +285,7 @@ async function pollSpotify() {
   try {
     track = await nowPlaying();
     followIfChanged();
+    if (spotifyName === null) spotifyName = await accountName(await accessToken());
   } catch (e) {
     if (spToken) console.warn('spotify:', e.message);
   } finally {
@@ -292,8 +315,40 @@ function projectorMode() {
   return 'free';
 }
 
+/// Who turns the Spotify song into video: 'always' (the projector, with its
+/// own session, phone put away), 'page' (this page, while open) or 'off'.
+function followMode() {
+  const s = health && health.spotify;
+  if (s && s.linked && s.following) return 'always';
+  if (spotifyLoggedIn() && store.autoFollow) return 'page';
+  return 'off';
+}
+
 function followingSpotify() {
-  return screenLinked() ? !!(health.spotify && health.spotify.following) : spotifyLoggedIn() && store.autoFollow;
+  return followMode() !== 'off';
+}
+
+/// The three-way switch in Ahora. "Siempre" needs the projector online: the
+/// first time it hands it a Spotify session (Spotify's login, then back here).
+async function setFollowMode(mode) {
+  const p = current();
+  if (!p || mode === followMode()) return;
+  const s = health && health.spotify;
+  if (mode === 'always') {
+    if (stateOf(p) !== 'online') return;
+    if (s && s.linked) await setScreenFollowing(true);
+    else spotifyAuthorize(`link:${p.id}`);
+    return;
+  }
+  if (mode === 'page' && !spotifyLoggedIn()) {
+    store.autoFollow = true;
+    saveStore();
+    spotifyAuthorize('phone');
+    return;
+  }
+  setAutoFollow(mode === 'page');
+  // The projector stops by itself; its session stays for "Siempre" later.
+  if (s && s.linked && s.following && stateOf(p) === 'online') await setScreenFollowing(false);
 }
 
 /// The projector is showing the song that plays on Spotify.
@@ -319,9 +374,9 @@ function followIfChanged() {
     followPrimed = true;
     return;
   }
-  // A projector with its own token follows by itself; sending too would open
-  // the video twice.
-  if (screenLinked() || !store.autoFollow || !track || !track.isPlaying) return;
+  // Only in "Página abierta": with "Siempre" the projector follows by itself,
+  // and sending too would open the video twice.
+  if (followMode() !== 'page' || !track || !track.isPlaying) return;
   followTimer = setTimeout(() => {
     if (trackKey(track) === key && !spotifyBusy && stateOf(current()) === 'online') sendTrack(track);
   }, 3000);
@@ -339,7 +394,7 @@ async function setScreenFollowing(on) {
   if (!p) return;
   const r = await api(p, 'spotify', { method: 'POST', body: { following: on } });
   if (r.status === 200 && r.data.ok) {
-    if (health) health.spotify = { linked: !!r.data.linked, following: !!r.data.following };
+    if (health) health.spotify = spotifyInfo(r.data);
   } else {
     toast(errorText(r, p), { error: true });
   }
@@ -350,7 +405,7 @@ async function unlinkSpotifyFromScreen(p) {
   closeSheets();
   const r = await api(p, 'spotify', { method: 'POST', body: { unlink: true } });
   if (r.status === 200 && r.data.ok) {
-    if (p === current() && health) health.spotify = { linked: false, following: false };
+    if (p === current() && health) health.spotify = { linked: false, following: false, account: null };
     toast(`Spotify desvinculado de ${p.name}`);
   } else {
     toast(errorText(r, p), { error: true });

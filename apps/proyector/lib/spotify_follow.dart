@@ -44,11 +44,12 @@ class SpotifyFollower {
   Future<void> link({
     required String clientId,
     required Map<String, dynamic> token,
+    String? account,
     bool follow = true,
   }) async {
     _clientId = clientId;
     _token = token;
-    state.setSpotify(linked: true, following: follow);
+    state.setSpotify(linked: true, following: follow, account: account ?? '');
     await _save();
     _restart();
   }
@@ -159,7 +160,11 @@ class SpotifyFollower {
       _clientId = j['clientId'] as String?;
       _token = (j['token'] as Map?)?.cast<String, dynamic>();
       if (_token == null || _clientId == null) return;
-      state.setSpotify(linked: true, following: j['following'] != false);
+      state.setSpotify(
+        linked: true,
+        following: j['following'] != false,
+        account: j['account'] as String? ?? '',
+      );
       _restart();
     } catch (_) {
       // Archivo corrupto: hay que volver a vincular.
@@ -175,6 +180,7 @@ class SpotifyFollower {
         'clientId': _clientId,
         'token': _token,
         'following': state.spotifyFollowing,
+        'account': state.spotifyAccount,
       }),
       flush: true,
     );

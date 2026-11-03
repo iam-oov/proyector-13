@@ -1182,14 +1182,9 @@ document.addEventListener('click', (e) => {
 });
 
 $('btn-send').addEventListener('click', () => sendTrack(track));
-$('btn-link-spotify').addEventListener('click', () => {
-  const p = current();
-  if (p) spotifyAuthorize(`link:${p.id}`);
-});
-$('chip-follow').addEventListener('click', () => {
-  if (screenLinked()) setScreenFollowing(!followingSpotify());
-  else setAutoFollow(!store.autoFollow);
-});
+for (const b of document.querySelectorAll('[data-follow]')) {
+  b.addEventListener('click', () => setFollowMode(b.dataset.follow));
+}
 $('chip-others').addEventListener('click', () => openOthers(candidates));
 $('btn-like').addEventListener('click', likeCurrent);
 $('mini-like').addEventListener('click', likeCurrent);
@@ -1429,19 +1424,43 @@ function renderNow(p) {
   $('volume').hidden = !(online && volume);
   renderVolume();
 
-  // Chips: "Seguir a Spotify" and "Otro video (n)".
-  const canFollow = logged && checked;
-  const own = screenLinked();
-  const following = own ? !!(health.spotify && health.spotify.following) : store.autoFollow;
+  // Without the projector, the buttons still drive the phone's Spotify.
+  $('control-hint').hidden = online || !checked || mode !== 'spotify';
+
   const others = empty ? 0 : candidates.length - 1;
-  $('chips').hidden = !canFollow && others <= 0;
-  $('chip-follow').hidden = !canFollow;
-  $('chip-follow').classList.toggle('on', following);
-  $('chip-follow-label').textContent = following ? 'Siguiendo Spotify' : 'Seguir a Spotify';
-  $('chip-follow-detail').hidden = own;
+  $('chips').hidden = others <= 0;
   $('chip-others').hidden = others <= 0;
   $('chip-others-label').textContent = `Otro video (${others})`;
-  $('btn-link-spotify').hidden = !(canFollow && !own && online);
+  renderFollow(p, online, logged);
+}
+
+/// "Video de lo que suena en Spotify": Apagado · Página abierta · Siempre,
+/// and one line that says who does it and with whose Spotify.
+function renderFollow(p, online, logged) {
+  const s = (health && health.spotify) || {};
+  const card = $('follow-card');
+  card.hidden = !spotifyClientId || !checked || !(logged || s.linked);
+  if (card.hidden) return;
+  const mode = followMode();
+  for (const b of card.querySelectorAll('[data-follow]')) {
+    const on = b.dataset.follow === mode;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', String(on));
+    b.disabled = spotifyBusy || (b.dataset.follow === 'always' && !online && !on);
+  }
+  const whose = (name) => (name ? `el Spotify de ${name}` : 'la cuenta de Spotify que le vinculaste');
+  let text;
+  if (mode === 'always') {
+    text = `${p.name} sigue ${whose(s.account)}, aunque guardes el teléfono.`;
+  } else if (mode === 'page') {
+    text = `Solo mientras esta página esté abierta en tu teléfono. Sigue ${spotifyName ? `el Spotify de ${spotifyName}` : 'tu Spotify'}.`;
+    if (online && !s.linked) text += ' Elige Siempre para que funcione con el teléfono guardado.';
+  } else {
+    text = `${p.name} no cambia el video cuando cambia la canción en Spotify.`;
+  }
+  if (!online && mode !== 'always') text += ` Prende ${p.name} para activar Siempre.`;
+  else if (s.linked && mode !== 'always' && s.account) text += ` Siempre usa la cuenta de ${s.account}.`;
+  $('follow-text').textContent = text;
 }
 
 /// The heart: only with a Spotify session; filled once saved this visit.

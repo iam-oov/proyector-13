@@ -119,6 +119,7 @@ class ReceiverServer {
     'spotify': {
       'linked': state.spotifyLinked,
       'following': state.spotifyFollowing,
+      'account': state.spotifyAccount,
     },
     // Para que el teléfono muestre los controles de la cola (saltar/detener).
     'queue': {'active': queue?.active ?? false, 'info': state.queueInfo},
@@ -167,7 +168,7 @@ class ReceiverServer {
   }
 
   /// Spotify del proyector:
-  /// - `{"link": {"clientId": "...", "token": {access_token, refresh_token, expires_at, …}}}`
+  /// - `{"link": {"clientId": "...", "token": {access_token, refresh_token, expires_at, …}, "account": "Nombre"}}`
   /// - `{"following": true|false}`
   /// - `{"unlink": true}`
   Future<Response> _spotify(Request request) async {
@@ -188,7 +189,14 @@ class ReceiverServer {
       if (clientId == null || token == null || token['refresh_token'] == null) {
         return _json({'ok': false, 'error': 'faltan clientId o token'}, 400);
       }
-      await s.link(clientId: clientId, token: token);
+      final account = link['account']?.toString().trim();
+      await s.link(
+        clientId: clientId,
+        token: token,
+        account: account == null || account.isEmpty
+            ? null
+            : account.substring(0, account.length.clamp(0, 60)),
+      );
     }
     if (body['following'] is bool) {
       await s.setFollowing(body['following'] as bool);
@@ -198,6 +206,7 @@ class ReceiverServer {
       'ok': true,
       'linked': state.spotifyLinked,
       'following': state.spotifyFollowing,
+      'account': state.spotifyAccount,
     });
   }
 

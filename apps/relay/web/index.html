@@ -190,6 +190,7 @@
         </div>
       </div>
 
+      <p class="control-hint" id="control-hint" hidden><svg><use href="#i-note"/></svg>El proyector no responde: controlas tu Spotify</p>
       <div class="transport" id="transport">
         <button class="round" type="button" data-media="stop" aria-label="Detener"><svg><use href="#i-stop"/></svg></button>
         <button class="round" type="button" data-media="back" aria-label="Atrasar 10 segundos"><svg><use href="#i-back10"/></svg></button>
@@ -210,10 +211,18 @@
       </div>
 
       <div class="chips" id="chips" hidden>
-        <button class="chip-btn" type="button" id="chip-follow"><svg><use href="#i-sync"/></svg><span class="chip-text"><b id="chip-follow-label">Seguir a Spotify</b><small id="chip-follow-detail">con esta app abierta</small></span></button>
         <button class="chip-btn" type="button" id="chip-others"><svg><use href="#i-library"/></svg><span class="chip-text"><b id="chip-others-label">Otro video</b></span></button>
       </div>
-      <button class="btn outline big" type="button" id="btn-link-spotify" hidden><svg><use href="#i-link"/></svg>Que el proyector siga a Spotify aunque guardes el teléfono</button>
+      <!-- Who turns Spotify into video: nobody, this page, or the projector. -->
+      <div class="tile follow-card" id="follow-card" hidden>
+        <span class="section-label"><svg><use href="#i-sync"/></svg>Video de lo que suena en Spotify</span>
+        <div class="segmented" role="radiogroup" aria-label="Video de lo que suena en Spotify">
+          <button type="button" role="radio" data-follow="off">Apagado</button>
+          <button type="button" role="radio" data-follow="page">Página abierta</button>
+          <button type="button" role="radio" data-follow="always">Siempre</button>
+        </div>
+        <p class="follow-text" id="follow-text"></p>
+      </div>
 
       <div class="row-tile static" id="spotify-connect" hidden>
         <svg class="lead"><use href="#i-note"/></svg>
