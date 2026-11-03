@@ -36,7 +36,18 @@ svg { fill: currentColor; }
   position: sticky; top: 0; z-index: 5;
   padding: calc(var(--top) + 10px) 16px 10px;
   background: linear-gradient(var(--bg) 70%, transparent);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
+.chip { min-width: 0; }
+/* Version of the running code, for testing; turns accent when a newer one is
+   deployed (tap to reload). */
+.ver {
+  margin-left: auto; flex: none;
+  padding: 6px 10px; border: 1px solid transparent; border-radius: 999px;
+  background: none; color: var(--text3);
+  font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.ver.stale { color: var(--on-accent); background: var(--accent); font-family: inherit; font-weight: 650; }
 .chip {
   display: inline-flex; align-items: center; gap: 8px;
   max-width: 100%;

@@ -155,8 +155,12 @@ async def _redirect(_: web.Request) -> web.Response:
 
 
 @routes.get(PREFIX + "/")
-async def _index(_: web.Request) -> web.FileResponse:
-    return web.FileResponse(WEB_DIR / "index.html", headers={"cache-control": "no-cache"})
+async def _index(request: web.Request) -> web.Response:
+    # The page names its own version and loads app.js/style.css with ?v=, so
+    # a phone never mixes a new page with cached old code, and the version on
+    # screen is the code that is really running.
+    html = (WEB_DIR / "index.html").read_text().replace("__VERSION__", request.app[VERSION])
+    return web.Response(text=html, content_type="text/html", headers={"cache-control": "no-cache"})
 
 
 @routes.get(PREFIX + "/version.json")

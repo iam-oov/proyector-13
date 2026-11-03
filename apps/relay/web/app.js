@@ -62,8 +62,13 @@ function current() {
 //   proyector://pair?v=1&id=<id>&n=<name>&h=<lan host>&p=<port>&t=<token>
 // The LAN host and port are ignored: this page always goes through the relay.
 
+// The projector's QR is now a link to this page with the same payload after
+// the # (so the token never reaches the server):
+//   https://www.valdoh.com/proyector/#pair?v=1&id=…
 function parsePairing(raw) {
-  const text = String(raw || '').trim();
+  let text = String(raw || '').trim();
+  const hash = text.indexOf('#pair?');
+  if (hash > 0) text = text.slice(hash);
   const q = text.indexOf('?');
   if (!/^proyector:\/\/pair\?/i.test(text) && !text.startsWith('#pair?') && !text.startsWith('pair?')) {
     throw new Error('Ese código no es de un proyector');
@@ -673,12 +678,7 @@ function removeProjector(p, btn) {
 $('screen-chip').addEventListener('click', async () => {
   renderScreens();
   openSheet('sheet-screens');
-  try {
-    const v = await (await fetch('version.json', { cache: 'no-store' })).json();
-    $('version').textContent = `versión ${v.version}`;
-  } catch {
-    $('version').textContent = '';
-  }
+  checkVersion();
   // Refresh every projector's dot while the list is open.
   await Promise.all(store.projectors.map(async (p) => {
     const r = await api(p, 'health');
@@ -690,13 +690,50 @@ $('screen-chip').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Version. The relay writes it into the page and loads app.js with ?v=, so
+// this is the code that is running. If the server has a newer one (a home
+// screen app on iOS can keep an old page for a long time), say so.
+
+const metaVersion = document.querySelector('meta[name="app-version"]');
+const APP_VERSION = metaVersion && !metaVersion.content.includes('__') ? metaVersion.content : 'dev';
+let serverVersion = null;
+
+function renderVersion() {
+  const el = $('app-ver');
+  const stale = serverVersion && APP_VERSION !== 'dev' && serverVersion !== APP_VERSION;
+  el.classList.toggle('stale', !!stale);
+  el.textContent = stale ? 'Nueva versión · tocar' : APP_VERSION;
+  $('version').textContent = stale
+    ? `versión ${APP_VERSION} (hay una nueva: ${serverVersion})`
+    : `versión ${APP_VERSION}`;
+}
+
+async function checkVersion() {
+  try {
+    const v = await (await fetch('version.json', { cache: 'no-store' })).json();
+    if (typeof v.version === 'string') serverVersion = v.version;
+  } catch {
+    // Offline: keep what we knew.
+  }
+  renderVersion();
+}
+
+$('app-ver').addEventListener('click', () => {
+  if ($('app-ver').classList.contains('stale')) location.reload();
+  else toast(`Versión ${APP_VERSION}`);
+});
+
+// ---------------------------------------------------------------------------
 // Polling only while Ahora is on screen.
 
 setInterval(() => {
   if (document.visibilityState === 'visible' && tab === 'now' && current()) refresh();
 }, POLL_MS);
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') refresh();
+  if (document.visibilityState === 'visible') {
+    refresh();
+    checkVersion();
+  }
 });
 
 // A pairing link in the address (#pair?v=1&id=…), for a future https QR.
@@ -708,3 +745,5 @@ if (location.hash.startsWith('#pair?')) {
 
 render();
 refresh();
+renderVersion();
+checkVersion();

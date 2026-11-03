@@ -104,6 +104,15 @@ async def test_cache_headers(client):
     assert api.headers["cache-control"] == "no-store"
 
 
+async def test_index_names_its_version(aiohttp_client, tmp_path, monkeypatch):
+    monkeypatch.setenv("RELAY_VERSION", "abc1234")
+    client = await aiohttp_client(create_app(tmp_path / "keys.json"))
+    html = await (await client.get("/proyector/")).text()
+    assert "__VERSION__" not in html
+    assert 'src="app.js?v=abc1234"' in html
+    assert '<meta name="app-version" content="abc1234">' in html
+
+
 def fake_searcher(results):
     calls = []
 
