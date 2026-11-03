@@ -115,7 +115,7 @@ class StatusScreen extends StatelessWidget {
       onPopInvokedWithResult: (_, _) => state.showPanel(ReceiverPanel.home),
       child: Scaffold(
         body: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 48),
+          padding: const EdgeInsets.symmetric(horizontal: 64, vertical: 32),
           child: ListenableBuilder(
             listenable: state,
             builder: (context, _) => LayoutBuilder(
@@ -130,43 +130,61 @@ class StatusScreen extends StatelessWidget {
                     _QrPanel(uri: state.pairingUri, size: qrSize),
                     const SizedBox(width: 48),
                     Expanded(
-                      child: Column(
+                      child: SingleChildScrollView(
+                        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(state.identity.name, style: text.displaySmall),
-                          const SizedBox(height: 8),
-                          Text(
-                            state.host == null
-                                ? 'Abriendo el puerto ${state.port}…'
-                                : '${state.host}:${state.port}',
-                            style: text.titleLarge?.copyWith(
-                              color: Colors.white70,
-                            ),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  state.identity.name,
+                                  style: text.displaySmall,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Text(
+                                state.host == null
+                                    ? 'Abriendo el puerto ${state.port}…'
+                                    : '${state.host}:${state.port}',
+                                style: text.titleMedium?.copyWith(
+                                  color: Colors.white54,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Apunta la cámara del teléfono al QR',
-                            style: text.bodyLarge,
-                          ),
-                          if (state.shortCode case final code?) ...[
-                            const SizedBox(height: 16),
-                            Text(
-                              'O entra a $_pwaLabel y escribe:',
-                              style: text.bodyLarge?.copyWith(
-                                color: Colors.white70,
+                          const SizedBox(height: 12),
+                          Text('En el teléfono:', style: text.titleMedium),
+                          const SizedBox(height: 6),
+                          _Step(1, 'Abre $_pwaLabel en el navegador.'),
+                          _Step(2, 'Toca "Tengo un código" y escribe:'),
+                          if (state.shortCode case final code?)
+                            Padding(
+                              padding: const EdgeInsets.only(left: 36),
+                              // "482 913": two groups read easier from the sofa.
+                              child: Text(
+                                '${code.substring(0, 3)} ${code.substring(3)}',
+                                style: text.displayMedium?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 6,
+                                  fontFeatures: const [
+                                    FontFeature.tabularFigures(),
+                                  ],
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            // "482 913": two groups read easier from the sofa.
-                            Text(
-                              '${code.substring(0, 3)} ${code.substring(3)}',
-                              style: text.displayMedium?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 6,
-                                fontFeatures: const [FontFeature.tabularFigures()],
-                              ),
+                          _Step(3, 'Ponle nombre a tu teléfono. Listo.'),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Atajo: apunta la cámara normal del teléfono al QR.',
+                            style: text.bodyMedium?.copyWith(
+                              color: Colors.white54,
                             ),
-                          ],
+                          ),
                           const SizedBox(height: 12),
                           Text(
                             state.phones.isEmpty
@@ -232,6 +250,7 @@ class StatusScreen extends StatelessWidget {
                             ),
                         ],
                       ),
+                      ),
                     ),
                   ],
                 );
@@ -277,6 +296,48 @@ class StatusScreen extends StatelessWidget {
 
   static String _hhmm(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+}
+
+/// One numbered line of the pairing instructions: a small circle with the
+/// number, then the text. Readable from the sofa, compact enough for 480 dp.
+class _Step extends StatelessWidget {
+  const _Step(this.n, this.label);
+
+  final int n;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            alignment: Alignment.center,
+            decoration: const BoxDecoration(
+              color: Colors.white24,
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              '$n',
+              style: text.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Text(label, style: text.bodyLarge),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Caja blanca con margen: el QR necesita zona de silencio sobre el fondo oscuro.
