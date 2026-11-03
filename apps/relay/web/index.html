@@ -148,7 +148,6 @@
       </div>
       <button class="btn outline big" type="button" id="btn-link-spotify" hidden><svg><use href="#i-link"/></svg>Que el proyector siga a Spotify aunque guardes el teléfono</button>
 
-      <p class="version" id="app-ver-line"><button class="link-quiet" type="button" id="app-ver"></button></p>
     </section>
 
     <section id="view-playlists" class="view" hidden>
@@ -186,7 +185,7 @@
       <form class="search-row" id="search-form" autocomplete="off">
         <label class="search-field">
           <svg><use href="#i-search"/></svg>
-          <input id="search-input" type="search" enterkeyhint="search" placeholder="Canción o artista" aria-label="Buscar en YouTube">
+          <textarea id="search-input" rows="1" enterkeyhint="search" placeholder="Canción o artista" aria-label="Buscar en YouTube" spellcheck="false"></textarea>
           <button class="icon-btn small" type="button" id="search-clear" aria-label="Borrar" hidden><svg><use href="#i-close"/></svg></button>
         </label>
         <button class="round mic" type="button" id="assist-mic" aria-label="Pedir con la voz" hidden>
@@ -213,7 +212,7 @@
     <div class="handle"></div>
     <h3 class="sheet-title">Pantallas</h3>
     <ul class="devices" id="screens-list"></ul>
-    <p class="version" id="version"></p>
+    <p class="version"><button class="link-quiet" type="button" id="app-ver"></button></p>
   </div>
 
   <div class="sheet" id="sheet-menu" role="dialog" aria-label="Opciones" hidden>
@@ -229,10 +228,9 @@
       <button class="add-tile" type="button" data-action="scan"><svg><use href="#i-qr"/></svg><span>Escanear QR</span></button>
       <button class="add-tile" type="button" data-action="paste"><svg><use href="#i-dialpad"/></svg><span>Tengo un código</span></button>
     </div>
-    <p class="section-label spaced">Tú</p>
     <button class="row-tile" type="button" data-action="rename-phone">
       <svg class="lead"><use href="#i-phone"/></svg>
-      <span class="row-text"><b id="phone-name-label">Sin nombre</b><small>Así te ven las pantallas</small></span>
+      <span class="row-text"><b id="phone-name-label">Sin nombre</b><small>Nombre de este teléfono</small></span>
       <svg class="trail"><use href="#i-edit"/></svg>
     </button>
     <div class="row-tile static" id="spotify-row">

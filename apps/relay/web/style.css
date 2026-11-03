@@ -101,6 +101,7 @@ body.no-tabs main { padding-bottom: calc(var(--bottom) + 24px); }
 .icon-btn { background: none; border: 0; padding: 8px; color: var(--text3); display: grid; place-items: center; }
 .icon-btn svg { width: 24px; height: 24px; }
 .icon-btn.small svg { width: 20px; height: 20px; }
+.search-field .icon-btn.small { align-self: flex-start; margin-top: 6px; }
 
 .live-chip {
   display: inline-flex; align-items: center; gap: 6px;
@@ -203,14 +204,19 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .center-title { font-size: 16px; font-weight: 600; margin: 12px 0 0; }
 
 /* --- Buscar ----------------------------------------------------------- */
-.search-row { display: flex; gap: 10px; align-items: center; }
+.search-row { display: flex; gap: 10px; align-items: flex-start; }
 .search-field {
   flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
   background: var(--surface); border-radius: 16px; padding: 0 6px 0 14px;
 }
-.search-field > svg { width: 22px; height: 22px; color: var(--text3); flex: none; }
-.search-field input { flex: 1; min-width: 0; border: 0; background: none; padding: 15px 0; font-size: 16px; outline: none; }
-.search-field input::placeholder { color: var(--text3); }
+.search-field > svg { width: 22px; height: 22px; color: var(--text3); flex: none; align-self: flex-start; margin-top: 15px; }
+/* Grows with the text up to 5 lines, like the app's field (minLines 1, maxLines 5). */
+.search-field textarea {
+  flex: 1; min-width: 0; border: 0; background: none; outline: none; resize: none;
+  padding: 15px 0; font-family: inherit; font-size: 16px; line-height: 22px; color: var(--text);
+  height: 52px; max-height: 140px; overflow-y: hidden;
+}
+.search-field textarea::placeholder { color: var(--text3); }
 .search-field:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type=search]::-webkit-search-cancel-button { display: none; }
 .round.mic { background: var(--accent); color: var(--on-accent); }
@@ -435,3 +441,6 @@ body.no-tabs .toast { bottom: calc(var(--bottom) + 16px); }
 .switch:checked { background: var(--accent); }
 .switch:checked::after { left: 24px; top: 4px; width: 24px; height: 24px; background: var(--on-accent); }
 .mask-status { margin: 0; min-height: 1.2em; color: var(--text2); font-size: 14px; }
+
+/* The phone row under the add tiles keeps the gap the "Tú" label had. */
+.add-tiles + .row-tile { margin-top: 20px; }

@@ -652,12 +652,37 @@ function openSearch() {
 $('btn-search').addEventListener('click', openSearch);
 $('btn-back').addEventListener('click', popView);
 
+/// Fits the field to its text, up to 5 lines (then it scrolls).
+function growSearch() {
+  const el = $('search-input');
+  el.style.height = 'auto';
+  const h = Math.min(el.scrollHeight, 140);
+  el.style.height = `${Math.max(h, 52)}px`;
+  el.style.overflowY = el.scrollHeight > 140 ? 'auto' : 'hidden';
+}
+
+// The ✕ first: it narrows the field, so it changes how many lines fit.
+function setSearchText(text) {
+  $('search-input').value = text;
+  $('search-clear').hidden = !text || asking;
+  growSearch();
+}
+
 $('search-input').addEventListener('input', () => {
   $('search-clear').hidden = !$('search-input').value || asking;
+  growSearch();
+});
+window.addEventListener('resize', growSearch);
+if (document.fonts) document.fonts.ready.then(growSearch);
+// Enter searches, like the keyboard's search key; it never adds a line.
+$('search-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    $('search-form').requestSubmit();
+  }
 });
 $('search-clear').addEventListener('click', () => {
-  $('search-input').value = '';
-  $('search-clear').hidden = true;
+  setSearchText('');
   $('search-input').focus();
 });
 
@@ -737,7 +762,7 @@ async function ask(text) {
   const p = current();
   if (!said || !p || asking) return;
   asking = true;
-  $('search-input').value = said;
+  setSearchText(said);
   $('search-input').blur();
   $('search-input').disabled = true;
   $('assist-mic').disabled = true;
@@ -798,7 +823,7 @@ function listen() {
   }
   if (!Recognition) {
     dictating = true;
-    $('search-input').value = '';
+    setSearchText('');
     $('search-input').focus();
     assistLine('Toca el micrófono del teclado, dime qué poner y luego Buscar');
     return;
@@ -815,7 +840,7 @@ function listen() {
       text += res[0].transcript;
       if (res.isFinal) finalText = text;
     }
-    $('search-input').value = text;
+    setSearchText(text);
   };
   r.onerror = (e) => {
     failed = true;
@@ -834,7 +859,7 @@ function listen() {
     if (!failed && text.trim()) ask(text);
   };
   recognizer = r;
-  $('search-input').value = '';
+  setSearchText('');
   setListening(true);
   try {
     r.start();
@@ -1392,13 +1417,11 @@ const APP_VERSION = metaVersion && !metaVersion.content.includes('__') ? metaVer
 let serverVersion = null;
 
 function renderVersion() {
+  // Only in the Pantallas sheet (tap the screen's name).
   const el = $('app-ver');
   const stale = serverVersion && APP_VERSION !== 'dev' && serverVersion !== APP_VERSION;
   el.classList.toggle('stale', !!stale);
-  el.textContent = stale ? 'Nueva versión · tocar' : `versión ${APP_VERSION}`;
-  $('version').textContent = stale
-    ? `versión ${APP_VERSION} (hay una nueva: ${serverVersion})`
-    : `versión ${APP_VERSION}`;
+  el.textContent = stale ? 'Nueva versión · tocar para actualizar' : `versión ${APP_VERSION}`;
 }
 
 async function checkVersion() {
