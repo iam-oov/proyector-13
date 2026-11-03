@@ -21,9 +21,9 @@ import json
 import os
 import re
 import secrets
+import sqlite3
 import subprocess
 import time
-from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
@@ -346,8 +346,9 @@ def _reply(res: dict) -> web.Response:
 
 YOUTUBE_SEARCH_URL = "https://www.youtube.com/youtubei/v1/search?prettyPrint=false"
 SEARCH_MAX_RESULTS = 8
-SEARCH_CACHE_SIZE = 300
-SEARCH_CACHE_TTL = 6 * 3600
+# YouTube's answer for the same words changes little: keep it a week.
+SEARCH_CACHE_SIZE = 2000
+SEARCH_CACHE_TTL = 7 * 24 * 3600
 # Per client IP, so that nobody turns the relay into a free search proxy and
 # gets the server's IP blocked by YouTube.
 SEARCH_RATE = 30
@@ -411,24 +412,77 @@ def youtube_searcher(session: ClientSession) -> Searcher:
 
 
 class SearchCache:
-    """Last answers by normalized query, so repeated searches skip YouTube."""
+    """Last YouTube answers by normalized query, so repeated searches skip
+    YouTube. In SQLite in the state directory, so they survive deploys and
+    reboots (the checkout is reset on every deploy; the state dir is not).
+    Without a path, or if the file is unusable, it lives in memory."""
 
-    def __init__(self, size: int = SEARCH_CACHE_SIZE, ttl: float = SEARCH_CACHE_TTL):
+    def __init__(self, path: Path | None = None, size: int = SEARCH_CACHE_SIZE, ttl: float = SEARCH_CACHE_TTL):
         self.size, self.ttl = size, ttl
-        self._items: OrderedDict[str, tuple[float, list[dict]]] = OrderedDict()
+        try:
+            self._db = self._open(path)
+        except (sqlite3.Error, OSError):
+            self._db = self._open(None)
+
+    @staticmethod
+    def _open(path: Path | None) -> sqlite3.Connection:
+        if path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        # Autocommit; aiohttp runs everything on one thread.
+        db = sqlite3.connect(str(path) if path else ":memory:", isolation_level=None)
+        if path is not None:
+            db.execute("PRAGMA journal_mode=WAL")
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS search ("
+            " query TEXT PRIMARY KEY, results TEXT NOT NULL, saved REAL NOT NULL, used REAL NOT NULL)"
+        )
+        return db
 
     def get(self, key: str) -> list[dict] | None:
-        hit = self._items.get(key)
-        if hit is None or time.monotonic() - hit[0] > self.ttl:
+        try:
+            row = self._db.execute("SELECT results, saved FROM search WHERE query = ?", (key,)).fetchone()
+            # Wall clock, not monotonic: entries outlive the process.
+            if row is None or time.time() - row[1] > self.ttl:
+                return None
+            self._db.execute("UPDATE search SET used = ? WHERE query = ?", (time.time(), key))
+            return json.loads(row[0])
+        except (sqlite3.Error, ValueError):
             return None
-        self._items.move_to_end(key)
-        return hit[1]
 
     def put(self, key: str, results: list[dict]) -> None:
-        self._items[key] = (time.monotonic(), results)
-        self._items.move_to_end(key)
-        while len(self._items) > self.size:
-            self._items.popitem(last=False)
+        now = time.time()
+        try:
+            self._db.execute(
+                "INSERT OR REPLACE INTO search (query, results, saved, used) VALUES (?, ?, ?, ?)",
+                (key, json.dumps(results, ensure_ascii=False), now, now),
+            )
+            # Keep the most recently used ones.
+            self._db.execute(
+                "DELETE FROM search WHERE query NOT IN (SELECT query FROM search ORDER BY used DESC LIMIT ?)",
+                (self.size,),
+            )
+        except sqlite3.Error:
+            pass
+
+    def close(self) -> None:
+        self._db.close()
+
+
+def search_key(query: str) -> str:
+    return " ".join(query.split()).lower()
+
+
+async def cached_search(app: web.Application, query: str) -> list[dict]:
+    """YouTube results for [query], from the cache when it has them. Shared
+    by Buscar and the assistant."""
+    cache: SearchCache = app[SEARCH_CACHE]
+    key = search_key(query)
+    results = cache.get(key)
+    if results is None:
+        results = await app[SEARCHER](query)
+        if results:
+            cache.put(key, results)
+    return results
 
 
 class RateLimiter:
@@ -463,18 +517,15 @@ async def _search(request: web.Request) -> web.Response:
         return _error(400, "escribe qué buscar")
     # Behind Cloudflare the client's address comes in this header.
     who = request.headers.get("cf-connecting-ip") or request.remote or "?"
-    key = query.lower()
-    cache: SearchCache = request.app[SEARCH_CACHE]
-    results = cache.get(key)
+    results = request.app[SEARCH_CACHE].get(search_key(query))
     if results is None:
+        # Only misses count against the limit: they are what reaches YouTube.
         if not request.app[SEARCH_LIMIT].allow(who):
             return _error(429, "demasiadas búsquedas, espera un minuto")
         try:
-            results = await request.app[SEARCHER](query)
+            results = await cached_search(request.app, query)
         except Exception:
             return _error(502, "YouTube no respondió, intenta otra vez")
-        if results:
-            cache.put(key, results)
     return web.json_response({"ok": True, "results": results})
 
 
@@ -602,7 +653,7 @@ async def _assistant(request: web.Request) -> web.Response:
         target = await connect(first["id"], first["token"])
         app[ASSISTANT_DAY][1] += 1
         out = await assistant.run(
-            said, projectors, target, connect, set(connected), ask, app[SEARCHER],
+            said, projectors, target, connect, set(connected), ask, lambda q: cached_search(app, q),
         )
     except assistant.Fail as e:
         return _error(422, str(e))
@@ -617,6 +668,10 @@ async def _assistant(request: web.Request) -> web.Response:
     return web.json_response({"ok": True, "heard": said, **out})
 
 
+async def _close_search_cache(app: web.Application) -> None:
+    app[SEARCH_CACHE].close()
+
+
 def create_app(
     keys_path: Path | None = None,
     searcher: Searcher | None = None,
@@ -629,16 +684,17 @@ def create_app(
         keys_path
         or Path(os.environ.get("RELAY_STATE_DIR", Path.home() / ".local/state/proyector-relay")) / "keys.json"
     )
+    app[STATE_DIR] = app[KEYS].path.parent
     app[SEARCHER] = searcher
-    app[SEARCH_CACHE] = SearchCache()
+    app[SEARCH_CACHE] = SearchCache(app[STATE_DIR] / "search_cache.sqlite3")
     app[SEARCH_LIMIT] = RateLimiter()
     app[CODES] = {}
     app[CODE_LIMIT] = RateLimiter(CODE_RATE, CODE_RATE_WINDOW)
-    app[STATE_DIR] = app[KEYS].path.parent
     app[ASKER] = [asker]
     app[ASSISTANT_LIMIT] = RateLimiter(ASSISTANT_RATE, ASSISTANT_RATE_WINDOW)
     app[ASSISTANT_DAY] = ["", 0]
     app.cleanup_ctx.append(_http_session)
+    app.on_cleanup.append(_close_search_cache)
     app.add_routes(routes)
     # The rest of the PWA's files (js, css, icons, manifest).
     app.router.add_static(PREFIX + "/", WEB_DIR, append_version=False)

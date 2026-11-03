@@ -354,3 +354,54 @@ async def test_index_spotify_client_id_from_state_file(aiohttp_client, tmp_path,
 
 def test_queue_gets_a_longer_timeout():
     assert relay.SLOW_PATHS["/queue"] > relay.REQUEST_TIMEOUT
+
+
+async def test_search_cache_survives_a_restart(aiohttp_client, tmp_path):
+    search, calls = fake_searcher([VIDEO])
+    first = await aiohttp_client(create_app(tmp_path / "keys.json", searcher=search))
+    assert (await first.get("/proyector/api/search", params={"q": "Cumbias"})).status == 200
+    await first.close()
+    # A new relay (as after a deploy) with the same state directory.
+    again = await aiohttp_client(create_app(tmp_path / "keys.json", searcher=search))
+    res = await again.get("/proyector/api/search", params={"q": "cumbias"})
+    assert (await res.json())["results"] == [VIDEO]
+    assert calls == ["Cumbias"]
+    assert (tmp_path / "search_cache.sqlite3").exists()
+
+
+def test_search_cache_expires_and_keeps_the_newest(tmp_path, monkeypatch):
+    cache = relay.SearchCache(tmp_path / "c.sqlite3", size=2, ttl=100)
+    now = [1000.0]
+    monkeypatch.setattr(relay.time, "time", lambda: now[0])
+    cache.put("a", [VIDEO])
+    now[0] += 1
+    cache.put("b", [VIDEO])
+    now[0] += 1
+    cache.put("c", [VIDEO])
+    assert cache.get("a") is None  # the oldest went out
+    assert cache.get("c") == [VIDEO]
+    now[0] += 101
+    assert cache.get("c") is None  # older than the TTL
+
+
+def test_search_cache_falls_back_to_memory(tmp_path):
+    bad = tmp_path / "not-a-db"
+    bad.mkdir()  # a directory where the file should be
+    cache = relay.SearchCache(bad)
+    cache.put("a", [VIDEO])
+    assert cache.get("a") == [VIDEO]
+
+
+async def test_assistant_uses_the_search_cache(aiohttp_client, tmp_path):
+    search, calls = fake_searcher([VIDEO])
+    ask, _ = fake_asker(
+        {"actions": [act("play", search_query="cumbias mix", prefer="long_mix")], "reply": "Pongo cumbias"},
+        {"index": 0, "reply": "Pongo Song"},
+    )
+    client, ws = await assistant_client(aiohttp_client, tmp_path, ask, search)
+    assert (await client.get("/proyector/api/search", params={"q": "Cumbias  mix"})).status == 200
+    task = projector_answers(ws, ROUTES, [])
+    res = await client.post("/proyector/api/assistant", json=said("pon cumbias"))
+    task.cancel()
+    assert res.status == 200, await res.text()
+    assert calls == ["Cumbias mix"]  # the assistant did not ask YouTube again
