@@ -31,9 +31,10 @@ function loadStore() {
       selected: typeof data.selected === 'string' ? data.selected : null,
       phoneName: typeof data.phoneName === 'string' ? data.phoneName : '',
       lastSent: data.lastSent && typeof data.lastSent === 'object' ? data.lastSent : {},
+      autoFollow: data.autoFollow !== false,
     };
   } catch {
-    return { projectors: [], selected: null, phoneName: '', lastSent: {} };
+    return { projectors: [], selected: null, phoneName: '', lastSent: {}, autoFollow: true };
   }
 }
 
@@ -159,7 +160,7 @@ function toast(text, { error = false } = {}) {
 // ---------------------------------------------------------------------------
 // Sheets.
 
-const sheets = ['sheet-screens', 'sheet-menu', 'sheet-add', 'sheet-paste', 'sheet-phone', 'sheet-rename', 'sheet-confirm'];
+const sheets = ['sheet-screens', 'sheet-menu', 'sheet-add', 'sheet-paste', 'sheet-phone', 'sheet-rename', 'sheet-confirm', 'sheet-others'];
 let afterPhoneName = null;
 
 function openSheet(id) {
@@ -518,6 +519,10 @@ function queueMode() {
 async function media(action) {
   const p = current();
   if (!p) return;
+  if (projectorMode() === 'spotify' && (action === 'toggle' || action === 'next' || action === 'stop')) {
+    await spotifyMedia(p, action);
+    return;
+  }
   let r;
   if (action === 'next') {
     toast('Buscando la siguiente…');
@@ -546,6 +551,33 @@ async function media(action) {
   }
   if (r.status === 409) toast('No hay video sonando en la pantalla', { error: true });
   else if (r.status !== 200) toast(errorText(r, p), { error: true });
+  render();
+  setTimeout(refresh, 900);
+}
+
+async function spotifyMedia(p, action) {
+  const m = (health && health.media) || {};
+  try {
+    if (action === 'next') {
+      await spotifyNext();
+    } else if (action === 'toggle') {
+      const wasPlaying = await spotifyToggle();
+      if (stateOf(p) === 'online' && m.title) {
+        await api(p, 'media', { method: 'POST', body: { action: wasPlaying ? 'pause' : 'play' } });
+        m.playing = !wasPlaying;
+      }
+    } else {
+      await spotifyPause();
+      if (stateOf(p) === 'online' && (m.title || queueMode())) {
+        await api(p, 'media', { method: 'POST', body: { action: 'stop' } });
+        if (health) health.queue = { active: false, info: null };
+        m.playing = false;
+      }
+      toast('Detenido');
+    }
+  } catch (e) {
+    toast(e.message, { error: true });
+  }
   render();
   setTimeout(refresh, 900);
 }
@@ -661,13 +693,14 @@ async function play(video) {
   if (r.status !== 200 || !r.data.ok) {
     toast(errorText(r, p), { error: true });
     render();
-    return;
+    return false;
   }
   // The row and the Ahora card show what was sent, so no toast.
   store.lastSent[p.id] = { id: video.id, title: video.title, thumb: video.thumb || null, at: Date.now() };
   saveStore();
   renderSearch();
   setTimeout(refresh, 1500);
+  return true;
 }
 
 // Voice assistant. The relay does the work (Claude + the projector calls), so
@@ -858,6 +891,7 @@ function openMenu(p) {
     openSheet('sheet-rename');
     $('rename-input').focus();
   });
+  if (p === current() && screenLinked()) add('Desvincular Spotify del proyector', () => unlinkSpotifyFromScreen(p));
   add('Copiar código (para otro teléfono)', () => copyCode(p));
   add('Eliminar', () => {
     $('confirm-title').textContent = `¿Eliminar ${p.name}?`;
@@ -961,7 +995,40 @@ document.addEventListener('click', (e) => {
   else if (el.dataset.action === 'rename-phone') askPhoneName(null);
   else if (el.dataset.action === 'search') openSearch();
   else if (el.dataset.action === 'close') closeSheets();
+  else if (el.dataset.action === 'spotify-login') spotifyAuthorize('phone');
 });
+
+$('spotify-connect').addEventListener('click', () => spotifyAuthorize('phone'));
+$('btn-send').addEventListener('click', () => sendTrack(track));
+$('btn-link-spotify').addEventListener('click', () => {
+  const p = current();
+  if (p) spotifyAuthorize(`link:${p.id}`);
+});
+$('chip-follow').addEventListener('click', () => {
+  if (screenLinked()) setScreenFollowing(!followingSpotify());
+  else setAutoFollow(!store.autoFollow);
+});
+$('chip-others').addEventListener('click', openOthers);
+$('spotify-row-btn').addEventListener('click', () => {
+  if (spotifyLoggedIn()) spotifyLogout();
+  else spotifyAuthorize('phone');
+});
+
+/// The other videos YouTube found for the song that was sent.
+function openOthers() {
+  const p = current();
+  const list = $('others-list');
+  list.replaceChildren();
+  for (const v of candidates.slice(1)) {
+    const li = document.createElement('li');
+    li.append(resultRow(v, p, false, () => {
+      closeSheets();
+      play(v);
+    }));
+    list.append(li);
+  }
+  openSheet('sheet-others');
+}
 
 $('screen-pick').addEventListener('click', openScreens);
 $('btn-add').addEventListener('click', () => {
@@ -991,6 +1058,8 @@ function render() {
   $('view-now').hidden = !p || inSearch || tab !== 'now';
   $('view-playlists').hidden = !p || inSearch || tab !== 'playlists';
   $('view-search').hidden = !inSearch;
+  $('playlists-login').hidden = spotifyLoggedIn();
+  $('playlists-body').hidden = !spotifyLoggedIn();
   if (!p) return;
   renderHeader(p);
   renderNow(p);
@@ -1014,7 +1083,8 @@ function renderNow(p) {
   const online = st === 'online';
   const m = (health && health.media) || {};
   const q = (health && health.queue) || {};
-  const queue = queueMode();
+  const mode = projectorMode();
+  const logged = spotifyLoggedIn();
 
   $('now-offline').hidden = !checked || online;
   $('offline-rescan').hidden = st !== 'unauthorized';
@@ -1022,52 +1092,120 @@ function renderNow(p) {
     ? `El código de ${p.name} cambió. En el proyector abre "Vincular teléfono" y escanea el QR otra vez.`
     : `${p.name} no responde. Revisa que esté prendido y con internet; esto se actualiza solo.`;
 
-  const empty = !queue && (!online || !m.title);
+  $('spotify-connect').hidden = !spotifyClientId || logged;
+  $('spotify-connect').disabled = spotifyBusy;
+
+  const empty = mode === 'free' && (!online || !m.title);
   $('now-empty').hidden = !empty;
   $('now-playing').hidden = empty;
   $('empty-text').textContent = `Pon música en Spotify y ${p.name} cambia el video sola, o busca un video para mandarlo.`;
 
   if (!empty) {
-    // The projector reports the playing title, not the video id; reuse the
-    // thumbnail of what this phone sent when the titles match.
     const sent = store.lastSent[p.id];
-    const thumb = !queue && sent && m.title && sameTitle(m.title, sent.title)
-      ? sent.thumb || `https://i.ytimg.com/vi/${encodeURIComponent(sent.id)}/hqdefault.jpg`
-      : '';
-    const art = $('hero-art');
-    const img = art.querySelector('img');
-    if (thumb && (!img || img.dataset.src !== thumb)) {
-      const el = document.createElement('img');
-      el.alt = '';
-      el.src = thumb;
-      el.dataset.src = thumb;
-      el.onerror = () => art.replaceChildren(placeholder(queue));
-      art.replaceChildren(el);
-    } else if (!thumb) {
-      art.replaceChildren(placeholder(queue));
-    }
-    const live = !!m.title;
+    const sentThumb = sent ? sent.thumb || `https://i.ytimg.com/vi/${encodeURIComponent(sent.id)}/hqdefault.jpg` : '';
+    // The projector reports the playing title, not the video id; reuse the
+    // thumbnail of what this phone sent when it is what plays.
+    let thumb = '';
+    if (mode === 'spotify') thumb = sent && sentKey === trackKey(track) ? sentThumb : '';
+    else if (mode === 'free') thumb = sent && m.title && sameTitle(m.title, sent.title) ? sentThumb : '';
+    const albumArt = mode === 'spotify' && track ? track.artUrl : '';
+    paintHero(thumb, albumArt, mode === 'queue');
+
+    const showing = showingTrack();
+    const sendable = mode === 'spotify' && logged && !!track && !showing && online;
+    $('hero-send').hidden = !sendable;
+    $('hero-send-text').textContent = `No está en ${p.name}`;
+    $('btn-send').disabled = spotifyBusy;
+    $('btn-send').querySelector('span').textContent = spotifyBusy ? 'Buscando…' : 'Enviar el video';
+
+    const live = mode === 'spotify' ? showing : !!m.title;
     const chip = $('hero-chip');
-    chip.hidden = !online;
+    chip.hidden = !online || sendable;
     chip.className = `live-chip on-hero${live ? ' on with-icon' : ''}`;
     chip.querySelector('svg').toggleAttribute('hidden', !live);
-    $('hero-chip-text').textContent = live ? `Reproduciéndose en ${p.name}` : `No en ${p.name}`;
-    $('now-title').textContent = queue ? m.title || 'Buscando el video…' : m.title || 'Nada sonando';
-    $('now-sub').textContent = queue ? q.info : `En ${p.name}`;
+    $('hero-chip-text').textContent = live ? `Reproduciéndose en ${p.name}`
+      : mode === 'spotify' && followingSpotify() ? 'Esperando canción' : `No en ${p.name}`;
+
+    if (mode === 'queue') {
+      $('now-title').textContent = m.title || 'Buscando el video…';
+      $('now-sub').textContent = q.info || '';
+    } else if (mode === 'spotify') {
+      $('now-title').textContent = track.title;
+      $('now-sub').textContent = track.artists.join(', ');
+    } else {
+      $('now-title').textContent = m.title || 'Nada sonando';
+      $('now-sub').textContent = `En ${p.name}`;
+    }
   }
 
+  // Transport: Detener · −10 · Play/Pausa · +10 · Siguiente.
   $('transport').classList.toggle('dimmed', empty);
-  const has = online && !!m.title;
+  const video = online && !!m.title;
+  const playing = mode === 'spotify' ? !!(track && track.isPlaying) : !!m.playing;
   for (const b of document.querySelectorAll('#transport [data-media]')) {
     const a = b.dataset.media;
-    b.disabled = !online || (a === 'stop' ? !(queue || m.title) : a === 'next' ? !queue : !has);
+    let ok;
+    if (a === 'stop') ok = mode !== 'free' || video;
+    else if (a === 'toggle') ok = mode === 'spotify' || video;
+    else if (a === 'next') ok = mode !== 'free';
+    else ok = video;
+    b.disabled = !ok || spotifyBusy;
   }
-  $('icon-play').toggleAttribute('hidden', !!m.playing);
-  $('icon-pause').toggleAttribute('hidden', !m.playing);
-  $('btn-toggle').setAttribute('aria-label', m.playing ? 'Pausar' : 'Reanudar');
+  $('icon-play').toggleAttribute('hidden', playing);
+  $('icon-pause').toggleAttribute('hidden', !playing);
+  $('btn-toggle').setAttribute('aria-label', playing ? 'Pausar' : 'Reanudar');
 
   $('volume').hidden = !(online && volume);
   renderVolume();
+
+  // Chips: "Seguir a Spotify" and "Otro video (n)".
+  const canFollow = logged && checked;
+  const own = screenLinked();
+  const following = own ? !!(health.spotify && health.spotify.following) : store.autoFollow;
+  const others = empty ? 0 : candidates.length - 1;
+  $('chips').hidden = !canFollow && others <= 0;
+  $('chip-follow').hidden = !canFollow;
+  $('chip-follow').classList.toggle('on', following);
+  $('chip-follow-label').textContent = following ? 'Siguiendo Spotify' : 'Seguir a Spotify';
+  $('chip-follow-detail').hidden = own;
+  $('chip-others').hidden = others <= 0;
+  $('chip-others-label').textContent = `Otro video (${others})`;
+  $('btn-link-spotify').hidden = !(canFollow && !own && online);
+}
+
+function paintHero(thumb, albumArt, queue) {
+  const art = $('hero-art');
+  const want = thumb ? `t:${thumb}` : albumArt ? `a:${albumArt}` : `p:${queue}`;
+  if (art.dataset.want === want) return;
+  art.dataset.want = want;
+  art.replaceChildren();
+  if (thumb) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = thumb;
+    img.onerror = () => {
+      art.dataset.want = '';
+      art.replaceChildren(placeholder(queue));
+    };
+    art.append(img);
+  } else if (albumArt) {
+    // The album art blurred behind, and square in the middle.
+    const blur = document.createElement('img');
+    blur.className = 'blur';
+    blur.alt = '';
+    blur.src = albumArt;
+    const shade = document.createElement('div');
+    shade.className = 'shade';
+    const square = document.createElement('img');
+    square.className = 'square';
+    square.alt = '';
+    square.src = albumArt;
+    // If the art does not load, the plain placeholder instead of a broken image.
+    square.onerror = () => art.replaceChildren(placeholder(queue));
+    art.append(blur, shade, square);
+  } else {
+    art.append(placeholder(queue));
+  }
 }
 
 function placeholder(queue) {
@@ -1124,43 +1262,46 @@ function renderSearch() {
       list.append(label);
     }
     const li = document.createElement('li');
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    const isSent = !!sent && sent.id === v.id;
-    btn.className = `result${isSent ? ' sent' : ''}`;
+    const btn = resultRow(v, p, !!sent && sent.id === v.id, () => play(v));
     btn.disabled = !enabled;
-
-    const thumb = document.createElement('div');
-    thumb.className = 'thumb';
-    const img = document.createElement('img');
-    img.loading = 'lazy';
-    img.alt = '';
-    img.src = `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/mqdefault.jpg`;
-    thumb.append(img);
-
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    const t = document.createElement('div');
-    t.className = 'title';
-    t.textContent = v.title;
-    meta.append(t);
-    if (isSent) {
-      const chip = document.createElement('span');
-      chip.className = 'live-chip on';
-      chip.textContent = `En ${p.name}`;
-      meta.append(chip);
-    } else {
-      const d = document.createElement('div');
-      d.className = 'details';
-      d.textContent = [v.channel, v.duration].filter(Boolean).join(' · ');
-      meta.append(d);
-    }
-
-    btn.append(thumb, meta);
-    btn.addEventListener('click', () => play(v));
     li.append(btn);
     list.append(li);
   });
+}
+
+function resultRow(v, p, isSent, onClick) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = `result${isSent ? ' sent' : ''}`;
+
+  const thumb = document.createElement('div');
+  thumb.className = 'thumb';
+  const img = document.createElement('img');
+  img.loading = 'lazy';
+  img.alt = '';
+  img.src = `https://i.ytimg.com/vi/${encodeURIComponent(v.id)}/mqdefault.jpg`;
+  thumb.append(img);
+
+  const meta = document.createElement('div');
+  meta.className = 'meta';
+  const t = document.createElement('div');
+  t.className = 'title';
+  t.textContent = v.title;
+  meta.append(t);
+  if (isSent && p) {
+    const chip = document.createElement('span');
+    chip.className = 'live-chip on';
+    chip.textContent = `En ${p.name}`;
+    meta.append(chip);
+  } else {
+    const d = document.createElement('div');
+    d.className = 'details';
+    d.textContent = [v.channel, v.duration].filter(Boolean).join(' · ');
+    meta.append(d);
+  }
+  btn.append(thumb, meta);
+  btn.addEventListener('click', onClick);
+  return btn;
 }
 
 function renderScreens() {
@@ -1212,6 +1353,9 @@ function renderScreens() {
 
 function renderAddSheet() {
   $('phone-name-label').textContent = store.phoneName || 'Sin nombre';
+  $('spotify-row').hidden = !spotifyClientId;
+  $('spotify-row-label').textContent = spotifyLoggedIn() ? 'Spotify conectado' : 'Spotify sin conectar';
+  $('spotify-row-btn').textContent = spotifyLoggedIn() ? 'Cerrar sesión' : 'Conectar';
 }
 
 // ---------------------------------------------------------------------------
@@ -1257,7 +1401,9 @@ $('app-ver').addEventListener('click', () => {
 // projectors' dots every 4th time.
 
 setInterval(() => {
-  if (document.visibilityState !== 'visible' || !current()) return;
+  if (document.visibilityState !== 'visible') return;
+  if (spotifyLoggedIn()) pollSpotify();
+  if (!current()) return;
   refresh();
   if (++ticks % 4 === 0) refreshOthers();
 }, POLL_MS);
@@ -1265,6 +1411,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     refresh();
     checkVersion();
+    if (spotifyLoggedIn()) pollSpotify();
   }
 });
 
@@ -1282,3 +1429,16 @@ render();
 refresh();
 renderVersion();
 checkVersion();
+spotifyCallback().then((wasCallback) => {
+  if (!wasCallback && spotifyLoggedIn()) {
+    // A token from before a new permission was added: connect again.
+    const have = String(spToken.scope || '').split(' ');
+    if (!SPOTIFY_SCOPES.every((sc) => have.includes(sc))) {
+      dropSpotify();
+      toast('Spotify pide un permiso nuevo (saltar y pausar): vuelve a conectar');
+    } else {
+      pollSpotify();
+    }
+  }
+  render();
+});

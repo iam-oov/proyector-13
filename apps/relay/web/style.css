@@ -172,7 +172,33 @@ input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border-radius: 
 .version { text-align: center; margin: 22px 0 0 !important; }
 .version, .version * { color: var(--text3); font-size: 12px; }
 
+/* --- Spotify on Ahora ------------------------------------------------- */
+.hero-art img.blur { position: absolute; inset: 0; filter: blur(24px); transform: scale(1.2); }
+.hero-art .shade { position: absolute; inset: 0; background: rgba(15, 15, 20, .35); }
+.hero-art img.square { position: relative; width: auto; height: 78%; aspect-ratio: 1; border-radius: 12px; }
+.hero-send {
+  position: absolute; inset: 0; z-index: 1;
+  display: grid; place-content: center; justify-items: center; gap: 12px;
+  background: rgba(15, 15, 20, .62);
+}
+.hero-send p { margin: 0; font-size: 14px; font-weight: 600; }
+.btn.outline { background: transparent; border-color: var(--line); color: var(--text); text-align: center; line-height: 1.25; padding: 14px 16px; }
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
+.chip-btn {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 52px; padding: 8px 16px;
+  border: 0; border-radius: 22px; background: var(--surface); color: var(--text2); text-align: left;
+}
+.chip-btn svg { width: 18px; height: 18px; flex: none; }
+.chip-btn .chip-text { display: grid; }
+.chip-btn b { font-size: 14px; font-weight: 700; }
+.chip-btn small { font-size: 11px; font-weight: 500; opacity: .75; }
+.chip-btn.on { background: rgba(99, 209, 143, .16); color: var(--live); }
+.row-tile.static { margin-top: 8px; cursor: default; }
+.row-tile.static:active { transform: none; }
+.row-tile .link { padding: 8px; }
+
 /* --- Playlists (phase 3) ---------------------------------------------- */
+.center-state .btn { margin-top: 16px; }
 .center-state { text-align: center; padding: 48px 12px; }
 .center-title { font-size: 16px; font-weight: 600; margin: 12px 0 0; }
 
