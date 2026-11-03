@@ -1099,14 +1099,84 @@ function render() {
   $('view-mask').hidden = !(pushed && view === 'mask');
   $('playlists-login').hidden = spotifyLoggedIn();
   $('playlists-body').hidden = !spotifyLoggedIn();
-  if (!p) return;
+  if (!p) {
+    renderMini(null);
+    return;
+  }
   renderHeader(p);
   renderNow(p);
   if (inSearch) renderSearch();
   if (!pushed && tab === 'playlists') renderPlaylists();
   if (pushed && view === 'tracks') renderTracks();
   if (pushed && view === 'mask') renderMask();
+  renderMini(p);
 }
+
+/// Mini player: what plays, on every screen except Ahora (which already shows
+/// it big) and Máscara (it would cover the canvas). Tap it to go to Ahora.
+function renderMini(p) {
+  const mini = $('mini');
+  const m = (health && health.media) || {};
+  const q = (health && health.queue) || {};
+  const mode = p ? projectorMode() : 'free';
+  const playingSomething = mode !== 'free' || !!m.title;
+  const show = !!p && stateOf(p) === 'online' && playingSomething
+    && !(view === 'tabs' && tab === 'now') && view !== 'mask';
+  mini.hidden = !show;
+  document.body.classList.toggle('has-mini', show);
+  if (!show) return;
+
+  let title;
+  let sub;
+  if (mode === 'queue') {
+    title = m.title || 'Buscando el video…';
+    sub = q.info || '';
+  } else if (mode === 'spotify') {
+    title = track.title;
+    sub = track.artists.join(', ');
+  } else {
+    title = m.title;
+    sub = `En ${p.name}`;
+  }
+  $('mini-title').textContent = title;
+  $('mini-sub').textContent = sub;
+
+  const sent = store.lastSent[p.id];
+  let art = '';
+  if (sent && ((mode === 'spotify' && sentKey === trackKey(track)) || (mode === 'free' && sameTitle(m.title, sent.title)))) {
+    art = sent.thumb || `https://i.ytimg.com/vi/${encodeURIComponent(sent.id)}/mqdefault.jpg`;
+  } else if (mode === 'spotify' && track && track.artUrl) {
+    art = track.artUrl;
+  }
+  const box = $('mini-art');
+  if (box.dataset.src !== art) {
+    box.dataset.src = art;
+    box.replaceChildren(placeholder(mode === 'queue'));
+    if (art) {
+      const img = document.createElement('img');
+      img.alt = '';
+      img.src = art;
+      img.onerror = () => img.remove();
+      box.append(img);
+    }
+  }
+
+  const playing = mode === 'spotify' ? !!(track && track.isPlaying) : !!m.playing;
+  $('mini-toggle-icon').setAttribute('href', playing ? '#i-pause' : '#i-play');
+  $('mini-toggle').setAttribute('aria-label', playing ? 'Pausar' : 'Reanudar');
+  $('mini-toggle').disabled = spotifyBusy || (mode !== 'spotify' && !m.title);
+  $('mini-next').hidden = mode === 'free';
+  $('mini-next').disabled = spotifyBusy;
+}
+
+$('mini-open').addEventListener('click', () => {
+  if (view !== 'tabs') {
+    // Close the pushed screen (Buscar, a playlist) the same way back does.
+    if (history.state && history.state.v === view) history.back();
+    view = 'tabs';
+  }
+  setTab('now');
+});
 
 function renderHeader(p) {
   const st = stateOf(p);

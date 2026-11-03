@@ -200,6 +200,16 @@
     </section>
   </main>
 
+  <!-- Mini player: floats over the other screens while something plays. -->
+  <div class="mini" id="mini" hidden>
+    <button class="mini-open" type="button" id="mini-open" aria-label="Ver lo que suena">
+      <span class="mini-art" id="mini-art"></span>
+      <span class="mini-text"><b id="mini-title"></b><small id="mini-sub"></small></span>
+    </button>
+    <button class="round mini-btn" type="button" data-media="toggle" id="mini-toggle" aria-label="Pausar"><svg><use id="mini-toggle-icon" href="#i-pause"/></svg></button>
+    <button class="round mini-btn" type="button" data-media="next" id="mini-next" aria-label="Siguiente"><svg><use href="#i-next"/></svg></button>
+  </div>
+
   <nav class="tabs" id="tabs" hidden>
     <button type="button" data-tab="now" class="on"><span class="pill"><svg><use href="#i-play-circle"/></svg></span><span>Ahora</span></button>
     <button type="button" data-tab="playlists"><span class="pill"><svg><use href="#i-queue-music"/></svg></span><span>Playlists</span></button>

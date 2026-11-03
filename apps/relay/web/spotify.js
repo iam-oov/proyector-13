@@ -68,6 +68,7 @@ function dropSpotify() {
   track = null;
   playlists = null;
   playlistTracks.clear();
+  spotifyMe = null;
 }
 
 function spotifyLogout() {

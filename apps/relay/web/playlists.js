@@ -7,6 +7,9 @@
 // spotify.js at call time.
 
 const LIKED_ID = 'liked';
+// The Spotify user id of this phone's session: in development mode Spotify
+// only lets the app read playlists this user owns.
+let spotifyMe = null;
 let playlistsLoading = false;
 let playlistsError = '';
 // The open playlist: {playlist, tracks|null, error, newestFirst}.
@@ -18,6 +21,10 @@ async function loadPlaylists(force = false) {
   playlistsError = '';
   renderPlaylists();
   try {
+    if (!spotifyMe) {
+      const me = await sp('/me');
+      if (me.ok) spotifyMe = (await me.json()).id || null;
+    }
     const res = await sp('/me/playlists?limit=50');
     if (!res.ok) throw new Error(`Spotify ${res.status}`);
     const j = await res.json();
@@ -77,8 +84,20 @@ function isPinned(id) {
   return store.pinned.includes(id);
 }
 
+/// Spotify answers 403/404 to a development-mode app for playlists the user
+/// does not own (editorial ones and other people's), so they cannot open.
+function isLocked(pl) {
+  if (pl.id === LIKED_ID) return false;
+  return pl.ownerId === 'spotify' || (!!spotifyMe && pl.ownerId !== spotifyMe);
+}
+
+function lockedReason(pl) {
+  return pl.ownerId === 'spotify' ? 'No disponible (editorial de Spotify)'
+    : `No disponible (es de ${pl.owner || 'otra cuenta'})`;
+}
+
 function togglePin(pl) {
-  if (pl.ownerId === 'spotify') return;
+  if (isLocked(pl)) return;
   store.pinned = isPinned(pl.id) ? store.pinned.filter((x) => x !== pl.id) : [...store.pinned, pl.id];
   saveStore();
   toast(isPinned(pl.id) ? `"${pl.name}" fijada arriba` : `"${pl.name}" ya no está fijada`);
@@ -151,7 +170,7 @@ let tracksKey = '';
 function renderPlaylists() {
   const body = $('playlists-body');
   if (!body || !spotifyLoggedIn()) return;
-  const key = JSON.stringify([playlists && playlists.map((x) => x.id + x.total), store.pinned, playlistsLoading, playlistsError]);
+  const key = JSON.stringify([playlists && playlists.map((x) => x.id + x.total), store.pinned, playlistsLoading, playlistsError, spotifyMe]);
   if (key === playlistsKey) return;
   playlistsKey = key;
   body.replaceChildren();
@@ -165,8 +184,9 @@ function renderPlaylists() {
     n.textContent = playlistsError;
     body.append(n);
   }
-  const all = playlists || [];
-  const pinned = all.filter((p) => isPinned(p.id));
+  // Yours first; the ones Spotify does not let the app read, at the end.
+  const all = [...(playlists || []).filter((p) => !isLocked(p)), ...(playlists || []).filter(isLocked)];
+  const pinned = all.filter((p) => isPinned(p.id) && !isLocked(p));
   if (pinned.length) {
     body.insertAdjacentHTML('beforeend', '<p class="section-label">Fijadas</p>');
     const grid = document.createElement('div');
@@ -191,8 +211,8 @@ function renderPlaylists() {
   }
   const list = document.createElement('div');
   list.className = 'pl-rows';
-  for (const pl of all.filter((p) => !isPinned(p.id))) {
-    const locked = pl.ownerId === 'spotify';
+  for (const pl of all.filter((p) => !pinned.includes(p))) {
+    const locked = isLocked(pl);
     const row = document.createElement('button');
     row.type = 'button';
     row.className = `pl-row${locked ? ' locked' : ''}`;
@@ -206,7 +226,7 @@ function renderPlaylists() {
     const name = document.createElement('b');
     name.textContent = pl.name;
     const sub = document.createElement('small');
-    sub.textContent = locked ? 'No disponible (editorial de Spotify)'
+    sub.textContent = locked ? lockedReason(pl)
       : [pl.total > 0 ? `${pl.total} canciones` : '', pl.owner].filter(Boolean).join(' · ');
     text.append(name, sub);
     row.append(text);
