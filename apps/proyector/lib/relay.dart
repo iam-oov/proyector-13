@@ -55,6 +55,8 @@ class RelayClient {
     state.addListener(() {
       if (_connectedId != null && _connectedId != state.identity.id) {
         unawaited(_ws?.close(1000, 'id changed'));
+      } else if (online && state.shortCode != _sentCode) {
+        _sendCode();
       }
     });
     unawaited(_run());
@@ -108,6 +110,8 @@ class RelayClient {
         case 'welcome':
           online = true;
           debugPrint('relay: online as ${identity.id} (relay ${msg['version']})');
+          // The relay forgets codes on every reconnect.
+          _sendCode();
         case 'req':
           unawaited(_answer(ws, msg));
       }
@@ -115,6 +119,17 @@ class RelayClient {
     if (ws.closeCode != null && ws.closeCode! >= 4000) {
       debugPrint('relay: closed ${ws.closeCode} ${ws.closeReason}');
     }
+  }
+
+  String? _sentCode;
+
+  /// Tells the relay which short code this projector shows (null = none), so
+  /// a phone that types it is routed here.
+  void _sendCode() {
+    final ws = _ws;
+    if (ws == null || ws.readyState != WebSocket.open) return;
+    _sentCode = state.shortCode;
+    ws.add(jsonEncode({'type': 'code', 'code': _sentCode}));
   }
 
   Future<void> _answer(WebSocket ws, Map<String, dynamic> msg) async {

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared/shared.dart';
 
@@ -81,7 +84,56 @@ class ReceiverState extends ChangeNotifier {
   void showPanel(ReceiverPanel p) {
     if (panel == p) return;
     panel = p;
+    if (p == ReceiverPanel.qr) {
+      _newShortCode();
+    } else {
+      _clearShortCode();
+    }
     notifyListeners();
+  }
+
+  /// 6 digits shown next to the QR while the pairing panel is open, to type
+  /// on a phone (www.valdoh.com/proyector) instead of scanning. Null when
+  /// the panel is closed. Not the same as [regenerateCode], which replaces
+  /// the QR's token.
+  String? shortCode;
+  DateTime? _shortCodeUntil;
+  int _shortCodeMisses = 0;
+  Timer? _shortCodeTimer;
+  static const shortCodeTtl = Duration(minutes: 10);
+  static const _shortCodeMaxMisses = 5;
+
+  void _newShortCode() {
+    final rng = Random.secure();
+    shortCode = List.generate(6, (_) => rng.nextInt(10)).join();
+    _shortCodeUntil = DateTime.now().add(shortCodeTtl);
+    _shortCodeMisses = 0;
+    _shortCodeTimer?.cancel();
+    // Panel still open when it expires: show a fresh one, not a dead number.
+    _shortCodeTimer = Timer(shortCodeTtl, () {
+      if (panel != ReceiverPanel.qr) return;
+      _newShortCode();
+      notifyListeners();
+    });
+  }
+
+  void _clearShortCode() {
+    _shortCodeTimer?.cancel();
+    shortCode = null;
+    _shortCodeUntil = null;
+  }
+
+  /// One use: a match rotates the code. Too many misses rotate it too, so it
+  /// cannot be guessed from the LAN either.
+  bool redeemShortCode(String code) {
+    final current = shortCode;
+    if (current == null) return false;
+    final ok = code == current && DateTime.now().isBefore(_shortCodeUntil!);
+    if (ok || ++_shortCodeMisses >= _shortCodeMaxMisses) {
+      _newShortCode();
+      notifyListeners();
+    }
+    return ok;
   }
 
   void setTrades(List<Trade> t) {

@@ -145,9 +145,28 @@ class StatusScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 16),
                           Text(
-                            'Escanea el QR con la app Proyector en tu teléfono',
+                            'Apunta la cámara del teléfono al QR',
                             style: text.bodyLarge,
                           ),
+                          if (state.shortCode case final code?) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              'O entra a $_pwaLabel y escribe:',
+                              style: text.bodyLarge?.copyWith(
+                                color: Colors.white70,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            // "482 913": two groups read easier from the sofa.
+                            Text(
+                              '${code.substring(0, 3)} ${code.substring(3)}',
+                              style: text.displayMedium?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 6,
+                                fontFeatures: const [FontFeature.tabularFigures()],
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                           Text(
                             state.phones.isEmpty
@@ -248,6 +267,13 @@ class StatusScreen extends StatelessWidget {
     );
     if (ok == true) await state.regenerateCode();
   }
+
+  /// "www.valdoh.com/proyector", from [pwaUrl].
+  static final _pwaLabel = () {
+    final u = Uri.parse(pwaUrl);
+    final path = u.path.endsWith('/') ? u.path.substring(0, u.path.length - 1) : u.path;
+    return '${u.host}${u.hasPort ? ':${u.port}' : ''}$path';
+  }();
 
   static String _hhmm(DateTime t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';

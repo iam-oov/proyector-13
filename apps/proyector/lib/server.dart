@@ -47,6 +47,7 @@ class ReceiverServer {
   Future<void> start() async {
     final router = Router()
       ..get('/health', _health)
+      ..post('/code', _redeemCode)
       ..post('/pair', _auth(_pair))
       ..post('/unpair', _auth(_unpair))
       ..post('/play', _auth(_play))
@@ -76,6 +77,24 @@ class ReceiverServer {
     if (state.addressChanged(await _lanAddress())) {
       debugPrint('pairing: ${state.pairingUri}');
     }
+  }
+
+  /// `{"code": "482913"}`: the short code on the pairing panel, typed on a
+  /// phone. Answers what the QR carries (id, name, token). No Bearer here:
+  /// the code is the proof, and it is one use and rotates after misses.
+  Future<Response> _redeemCode(Request request) async {
+    final Object? body;
+    try {
+      body = jsonDecode(await request.readAsString());
+    } catch (_) {
+      return _json({'ok': false, 'error': 'body JSON inválido'}, 400);
+    }
+    final code = body is Map ? body['code']?.toString() ?? '' : '';
+    if (!state.redeemShortCode(code)) {
+      return _json({'ok': false, 'error': 'Ese código no sirve. Revisa el que sale en el proyector.'}, 403);
+    }
+    final id = state.identity;
+    return _json({'ok': true, 'id': id.id, 'name': id.name, 'token': id.token});
   }
 
   /// Exige el token del QR. Sin él, 401.
