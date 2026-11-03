@@ -23,6 +23,19 @@ void main() {
     expect(back.baseUrl.toString(), 'http://192.168.68.50:8080');
   });
 
+  test('round trip through the PWA link', () {
+    const p = PairingPayload(id: 'k3j9x0qa2mzp', name: 'Proyector Niños & Cía', host: '192.168.68.50', port: 8080, token: token);
+    final link = p.toLink('https://www.valdoh.com/proyector/');
+    expect(link, startsWith('https://www.valdoh.com/proyector/#pair?v=1&'));
+    final back = PairingPayload.parse(link);
+    expect(back.name, 'Proyector Niños & Cía');
+    expect(back.id, p.id);
+    expect(back.token, token);
+    expect(back.port, 8080);
+    // A link that is not a pairing one is still rejected.
+    expect(PairingPayload.tryParse('https://www.valdoh.com/proyector/'), isNull);
+  });
+
   test('rechaza QR ajenos', () {
     expect(PairingPayload.tryParse('https://youtube.com'), isNull);
     expect(PairingPayload.tryParse('hola'), isNull);

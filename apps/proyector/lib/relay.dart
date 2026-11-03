@@ -17,6 +17,18 @@ const relayUrl = String.fromEnvironment(
   defaultValue: 'wss://www.valdoh.com/proyector/relay/ws',
 );
 
+/// The PWA page the projector's QR opens, derived from [relayUrl]
+/// (wss://host/proyector/relay/ws → https://host/proyector/).
+final pwaUrl = () {
+  final u = Uri.parse(relayUrl);
+  return u
+      .replace(
+        scheme: u.scheme == 'wss' ? 'https' : 'http',
+        path: u.path.replaceFirst(RegExp(r'relay/ws$'), ''),
+      )
+      .toString();
+}();
+
 /// Keeps an outbound WebSocket open to the relay so phones outside this
 /// network (the PWA at valdoh.com/proyector) can reach the projector.
 ///

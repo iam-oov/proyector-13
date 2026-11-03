@@ -43,15 +43,31 @@ class PairingPayload {
         },
       );
 
+  /// The same payload as a link to the PWA, `<pageUrl>#pair?v=1&id=…`, so
+  /// any phone camera opens it. The payload goes after the # so the token
+  /// never reaches the server. Built as a string: Uri(fragment:) would
+  /// escape the query a second time.
+  String toLink(String pageUrl) => '$pageUrl#$pairingHost?${toUri().query}';
+
   Uri get baseUrl => Uri(scheme: 'http', host: host, port: port);
 
   /// Lanza [FormatException] con un mensaje en español si el QR no sirve.
+  /// Accepts both `proyector://pair?…` and the [toLink] form.
   static PairingPayload parse(String raw) {
-    final uri = Uri.tryParse(raw.trim());
-    if (uri == null || uri.scheme != pairingScheme || uri.host != pairingHost) {
-      throw const FormatException('Este QR no es de Proyector');
+    final text = raw.trim();
+    final at = text.indexOf('#$pairingHost?');
+    final Map<String, String> q;
+    if (at > 0 && text.startsWith(RegExp(r'https?://'))) {
+      // Not uri.fragment: Dart hands it back already decoded, and decoding
+      // the query again would break names with accents or spaces.
+      q = Uri.splitQueryString(text.substring(at + pairingHost.length + 2));
+    } else {
+      final uri = Uri.tryParse(text);
+      if (uri == null || uri.scheme != pairingScheme || uri.host != pairingHost) {
+        throw const FormatException('Este QR no es de Proyector');
+      }
+      q = uri.queryParameters;
     }
-    final q = uri.queryParameters;
     final version = int.tryParse(q['v'] ?? '');
     if (version == null || version > pairingVersion) {
       throw const FormatException('QR de una versión nueva: actualiza la app');

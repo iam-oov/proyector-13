@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared/shared.dart';
 
 import 'identity.dart';
+import 'relay.dart' show pwaUrl;
 
 enum ReceiverPanel { home, qr }
 
@@ -35,7 +36,7 @@ class ReceiverState extends ChangeNotifier {
           host: host!,
           port: port,
           token: identity.token,
-        ).toUri().toString();
+        ).toLink(pwaUrl);
 
   PortfolioStats get stats => PortfolioStats.compute(trades, quotes);
 
