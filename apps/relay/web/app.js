@@ -638,7 +638,7 @@ window.addEventListener('popstate', () => {
   const v = (history.state && history.state.v) || 'tabs';
   if (v === view) return;
   // A pushed view with nothing to show (e.g. after a reload) goes to the tabs.
-  view = v === 'tracks' && !openList ? 'tabs' : v;
+  view = (v === 'tracks' && !openList) || (v === 'mask' && !mask) ? 'tabs' : v;
   stopListening();
   render();
 });
@@ -900,6 +900,7 @@ function openMenu(p) {
     openSheet('sheet-rename');
     $('rename-input').focus();
   });
+  add('Máscara de proyección', () => openMask(p));
   if (p === current() && screenLinked()) add('Desvincular Spotify del proyector', () => unlinkSpotifyFromScreen(p));
   add('Copiar código (para otro teléfono)', () => copyCode(p));
   add('Eliminar', () => {
@@ -1070,6 +1071,7 @@ function render() {
   $('view-playlists').hidden = !p || pushed || tab !== 'playlists';
   $('view-search').hidden = !inSearch;
   $('view-tracks').hidden = !(pushed && view === 'tracks');
+  $('view-mask').hidden = !(pushed && view === 'mask');
   $('playlists-login').hidden = spotifyLoggedIn();
   $('playlists-body').hidden = !spotifyLoggedIn();
   if (!p) return;
@@ -1078,6 +1080,7 @@ function render() {
   if (inSearch) renderSearch();
   if (!pushed && tab === 'playlists') renderPlaylists();
   if (pushed && view === 'tracks') renderTracks();
+  if (pushed && view === 'mask') renderMask();
 }
 
 function renderHeader(p) {
@@ -1435,7 +1438,7 @@ if (location.hash.startsWith('#pair?')) {
   const text = location.hash;
   history.replaceState(null, '', location.pathname);
   addFromText(text);
-} else if (location.hash === '#search' || location.hash === '#tracks') {
+} else if (['#search', '#tracks', '#mask'].includes(location.hash)) {
   history.replaceState(null, '', location.pathname);
 }
 

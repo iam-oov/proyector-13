@@ -57,6 +57,9 @@
     <symbol id="i-schedule" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67V7z"/></symbol>
     <symbol id="i-numbered" viewBox="0 0 24 24"><path d="M2 17h2v.5H3v1h1v.5H2v1h3v-4H2v1zm1-9h1V4H2v1h1v3zm-1 3h1.8L2 13.1v.9h3v-1H3.2L5 10.9V10H2v1zm5-6v2h14V5H7zm0 14h14v-2H7v2zm0-6h14v-2H7v2z"/></symbol>
     <symbol id="i-favorite" viewBox="0 0 24 24"><path d="m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10.5c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></symbol>
+    <symbol id="i-layers-clear" viewBox="0 0 24 24"><path d="m19.81 14.99 1.19-.92-1.43-1.43-1.19.92 1.43 1.43zm-.45-4.72L21 9l-9-7-2.91 2.27 7.87 7.88 2.4-1.88zM3.27 1 2 2.27l4.22 4.22L3 9l1.63 1.27L12 16l2.1-1.63 1.43 1.43L12 18.54l-7.37-5.73L3 14.07l9 7 4.95-3.85L20.73 21 22 19.73 3.27 1z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
     <symbol id="i-note" viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></symbol>
   </svg>
 
@@ -159,6 +162,24 @@
 
     <!-- A playlist's songs, pushed over the tabs. Filled by playlists.js. -->
     <section id="view-tracks" class="view" hidden></section>
+
+    <!-- Máscara de proyección, pushed over the tabs. Driven by mask.js. -->
+    <section id="view-mask" class="view" hidden>
+      <div class="mask-head">
+        <h2>Máscara</h2>
+        <button class="icon-btn" type="button" id="mask-undo" aria-label="Deshacer"><svg><use href="#i-undo"/></svg></button>
+        <button class="icon-btn" type="button" id="mask-clear" aria-label="Quitar máscara"><svg><use href="#i-layers-clear"/></svg></button>
+      </div>
+      <p class="mask-help" id="mask-help"></p>
+      <canvas class="mask-canvas" id="mask-canvas" aria-label="Dibuja la máscara"></canvas>
+      <label class="mask-row"><span>Borde suave</span><input type="range" id="mask-feather" min="0" max="0.06" step="0.001" value="0.015"></label>
+      <label class="switch-row">
+        <span class="row-text"><b>Contorno para calibrar</b><small>Línea blanca alrededor de cada figura mientras ajustas</small></span>
+        <input type="checkbox" class="switch" id="mask-outline" checked>
+      </label>
+      <p class="mask-status" id="mask-status"></p>
+      <button class="btn primary big" type="button" id="mask-save"><svg><use href="#i-check"/></svg>Guardar máscara</button>
+    </section>
 
     <!-- Buscar opens over the tabs, like a pushed screen in the app. -->
     <section id="view-search" class="view" hidden>
@@ -289,5 +310,7 @@
   <script src="spotify.js?v=__VERSION__"></script>
   <script src="playlists.js?v=__VERSION__"></script>
   <script src="app.js?v=__VERSION__"></script>
+  <!-- After app.js: it wires its controls with app.js helpers on load. -->
+  <script src="mask.js?v=__VERSION__"></script>
 </body>
 </html>
