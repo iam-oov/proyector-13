@@ -29,6 +29,9 @@ final pwaUrl = () {
       .toString();
 }();
 
+/// The relay's YouTube search, with its shared cache (see searchViaRelay).
+final relaySearchUrl = Uri.parse(pwaUrl).resolve('api/search');
+
 /// Keeps an outbound WebSocket open to the relay so phones outside this
 /// network (the PWA at valdoh.com/proyector) can reach the projector.
 ///

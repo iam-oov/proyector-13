@@ -6,6 +6,7 @@ import 'package:shared/shared.dart';
 
 import 'identity.dart';
 import 'player.dart';
+import 'relay.dart' show relaySearchUrl;
 import 'state.dart';
 
 /// El proyector sigue a Spotify por su cuenta: con su propia sesión (la vincula
@@ -115,7 +116,7 @@ class SpotifyFollower {
     try {
       var video = _cache[key];
       if (video == null) {
-        final ranked = rankVideos(await searchTrackVideos(t), t);
+        final ranked = rankVideos(await searchTrackVideos(t, relaySearch: relaySearchUrl), t);
         if (ranked.isEmpty) return;
         video = ranked.first.video;
         _cache[key] = video;

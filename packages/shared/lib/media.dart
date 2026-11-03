@@ -45,13 +45,51 @@ Future<List<VideoCandidate>> searchYouTubeWeb(String query, {int max = 5, http.C
   return out;
 }
 
+/// The same search through the relay (its `api/search`), which keeps answers
+/// for a week in SQLite: a playlist played again does not ask YouTube for
+/// every song, and the phone and the projector share the answers. Throws on
+/// any failure, so callers can fall back to [searchYouTubeWeb].
+Future<List<VideoCandidate>> searchViaRelay(Uri searchUrl, String query, {http.Client? client}) async {
+  final c = client ?? http.Client();
+  final r = await c
+      .get(searchUrl.replace(queryParameters: {'q': query}))
+      .timeout(const Duration(seconds: 8));
+  if (r.statusCode != 200) throw StateError('relay search ${r.statusCode}');
+  final j = jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
+  if (j['ok'] != true || j['results'] is! List) throw StateError('relay search: bad answer');
+  return [
+    for (final v in j['results'] as List)
+      if (v is Map && v['id'] is String)
+        VideoCandidate(
+          id: v['id'] as String,
+          title: (v['title'] as String?) ?? '',
+          channel: (v['channel'] as String?) ?? '',
+          thumbnailUrl: v['thumb'] as String?,
+          duration: v['duration'] as String?,
+        ),
+  ];
+}
+
 /// Videos para una canción. Primero "artista título official video"; si YouTube
 /// no da resultados (p. ej. pide "Confirma tu edad" por una palabra sensible),
 /// reintenta solo con "artista título".
-Future<List<VideoCandidate>> searchTrackVideos(Track t, {http.Client? client}) async {
-  final first = await searchYouTubeWeb(t.searchQuery, client: client);
+/// With [relaySearch], each query goes through the relay's cache first and
+/// straight to YouTube only if the relay fails.
+Future<List<VideoCandidate>> searchTrackVideos(Track t, {http.Client? client, Uri? relaySearch}) async {
+  Future<List<VideoCandidate>> search(String q) async {
+    if (relaySearch != null) {
+      try {
+        return await searchViaRelay(relaySearch, q, client: client);
+      } catch (_) {
+        // Relay down or offline: YouTube directly, as before.
+      }
+    }
+    return searchYouTubeWeb(q, client: client);
+  }
+
+  final first = await search(t.searchQuery);
   if (first.isNotEmpty) return first;
-  return searchYouTubeWeb(t.plainQuery, client: client);
+  return search(t.plainQuery);
 }
 
 String _runs(Object? o) {

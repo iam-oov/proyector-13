@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shared/shared.dart';
 
 import 'player.dart';
+import 'relay.dart' show relaySearchUrl;
 import 'state.dart';
 
 const _channel = MethodChannel('proyector/launch');
@@ -85,7 +86,7 @@ class QueueController {
         _index++;
         final t = _tracks[_index];
         try {
-          final ranked = rankVideos(await searchTrackVideos(t), t);
+          final ranked = rankVideos(await searchTrackVideos(t, relaySearch: relaySearchUrl), t);
           if (ranked.isEmpty) continue;
           final v = ranked.first.video;
           _expected = _norm(v.title);
