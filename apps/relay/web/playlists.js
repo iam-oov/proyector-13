@@ -143,9 +143,17 @@ function cover(url, size, icon, radius = 10) {
   return box;
 }
 
+// Polling calls render() every few seconds: rebuild a list only when what it
+// shows changed, so a tap or a long press on a row is never cut in half.
+let playlistsKey = '';
+let tracksKey = '';
+
 function renderPlaylists() {
   const body = $('playlists-body');
   if (!body || !spotifyLoggedIn()) return;
+  const key = JSON.stringify([playlists && playlists.map((x) => x.id + x.total), store.pinned, playlistsLoading, playlistsError]);
+  if (key === playlistsKey) return;
+  playlistsKey = key;
   body.replaceChildren();
   if (playlistsLoading && !playlists) {
     body.innerHTML = '<div class="center-state"><span class="spinner big"></span></div>';
@@ -256,6 +264,10 @@ function renderTracks() {
   const online = stateOf(p) === 'online';
   const pl = openList.playlist;
   const tracks = openList.tracks;
+  const key = JSON.stringify([pl.id, tracks && tracks.length, openList.newestFirst, openList.error, queueing,
+    online, p && p.name, sentKey, spotifyBusy]);
+  if (key === tracksKey) return;
+  tracksKey = key;
   box.replaceChildren();
 
   const head = document.createElement('div');

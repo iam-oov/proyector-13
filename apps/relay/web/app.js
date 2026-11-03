@@ -1259,9 +1259,16 @@ function renderVolume() {
   $('btn-mute').setAttribute('aria-label', v.muted ? 'Quitar silencio' : 'Silenciar');
 }
 
+let searchKey = '';
+
 function renderSearch() {
   const p = current();
   if (!p) return;
+  // Rebuilt only when it changed (see playlistsKey in playlists.js).
+  const key = JSON.stringify([results.map((v) => v.id), resultsFromAssistant, asking, searching, assistantOn,
+    stateOf(p), p.name, store.lastSent[p.id] && store.lastSent[p.id].id]);
+  if (key === searchKey) return;
+  searchKey = key;
   $('assist-mic').hidden = !assistantOn;
   $('search-empty').hidden = results.length > 0 || searching;
   $('search-empty').textContent = assistantOn
