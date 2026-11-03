@@ -12,6 +12,8 @@
 const SPOTIFY_SCOPES = [
   'user-read-currently-playing', 'user-read-playback-state', 'playlist-read-private',
   'playlist-read-collaborative', 'user-library-read', 'user-modify-playback-state',
+  // "Me gusta": create proyector_13 and add songs to it.
+  'playlist-modify-private', 'playlist-modify-public',
 ];
 // What a projector needs to follow Spotify on its own.
 const PROJECTOR_SCOPES = ['user-read-currently-playing', 'user-read-playback-state'];
@@ -69,6 +71,7 @@ function dropSpotify() {
   playlists = null;
   playlistTracks.clear();
   spotifyMe = null;
+  savePlaylistId = null;
 }
 
 function spotifyLogout() {
@@ -232,6 +235,7 @@ async function nowPlaying() {
   if (!j || !j.item || j.currently_playing_type !== 'track') return null;
   const images = (j.item.album && j.item.album.images) || [];
   return {
+    uri: j.item.uri || null,
     title: j.item.name || '',
     artists: (j.item.artists || []).map((a) => a.name).filter(Boolean),
     isPlaying: !!j.is_playing,
@@ -438,4 +442,175 @@ async function spotifyNext() {
 async function spotifyPause() {
   await spCommand('PUT', '/me/player/pause');
   if (track) track.isPlaying = false;
+}
+
+// --- "Me gusta": save what plays in the playlist "proyector_13" ----------------
+//
+// The other way round from "Enviar el video": a YouTube video that plays on
+// the projector goes back to Spotify. The video's title is cleaned and looked
+// up in Spotify; the user picks the right song (a mix or a full album is not
+// one song) and it is added to a private playlist of their own, created the
+// first time.
+
+const SAVE_PLAYLIST = 'proyector_13';
+let savePlaylistId = null;
+// What was saved this visit, so the heart shows filled: likeKey() values.
+const savedHere = new Set();
+
+/// "Luis Miguel - Hasta Que Me Olvides (Video Oficial) [HD] | Warner" →
+/// "Luis Miguel Hasta Que Me Olvides".
+function cleanVideoTitle(title) {
+  return String(title || '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\(([^)]*)\)/g, (all, inner) => (/video|vídeo|oficial|official|lyric|letra|audio|en vivo|live|hd|4k|remaster|visualizer|clip/i.test(inner) ? ' ' : all))
+    .replace(/\b(official (music )?video|video oficial|vídeo oficial|videoclip|official audio|audio oficial|lyrics?|con letra|letra)\b/gi, ' ')
+    .replace(/\s[|•·].*$/, ' ')
+    .replace(/["“”«»]/g, ' ')
+    .replace(/\p{Extended_Pictographic}/gu, ' ')
+    .replace(/\s+[-–—]\s+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/// What the heart refers to right now: the Spotify song, or the video title.
+function likeKey() {
+  const m = (health && health.media) || {};
+  if (projectorMode() === 'spotify' && track) return `u:${track.uri || trackKey(track)}`;
+  return m.title ? `v:${normalize(m.title)}` : '';
+}
+
+function spotifyWriteError(status, text) {
+  if (status === 403) return 'Spotify no dejó guardar: conecta Spotify otra vez para dar el permiso nuevo';
+  return `Spotify ${status}: ${String(text || '').slice(0, 100)}`;
+}
+
+async function searchSpotifyTracks(q) {
+  const res = await sp(`/search?type=track&limit=5&q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw new Error(`Spotify ${res.status}`);
+  const j = await res.json();
+  return ((j.tracks && j.tracks.items) || []).filter(Boolean).map((t) => {
+    const images = (t.album && t.album.images) || [];
+    return {
+      uri: t.uri,
+      title: t.name || '',
+      artists: (t.artists || []).map((a) => a.name).filter(Boolean),
+      album: (t.album && t.album.name) || '',
+      artUrl: images.length ? images[images.length - 1].url : null,
+    };
+  });
+}
+
+async function ensureSavePlaylist() {
+  if (savePlaylistId) return savePlaylistId;
+  if (!spotifyMe) {
+    const me = await sp('/me');
+    if (me.ok) spotifyMe = (await me.json()).id || null;
+  }
+  // One of the user's own playlists, on any page of the list.
+  let next = '/me/playlists?limit=50';
+  while (next) {
+    const res = await sp(next);
+    if (!res.ok) throw new Error(`Spotify ${res.status}`);
+    const j = await res.json();
+    const hit = (j.items || []).find((p) => p && p.name === SAVE_PLAYLIST && p.owner && p.owner.id === spotifyMe);
+    if (hit) {
+      savePlaylistId = hit.id;
+      return hit.id;
+    }
+    next = j.next ? j.next.replace('https://api.spotify.com/v1', '') : null;
+  }
+  const body = { name: SAVE_PLAYLIST, public: false, description: 'Canciones guardadas desde el proyector' };
+  let res = await sp('/me/playlists', { method: 'POST', body });
+  // Older form of the endpoint.
+  if ((res.status === 404 || res.status === 405) && spotifyMe) {
+    res = await sp(`/users/${encodeURIComponent(spotifyMe)}/playlists`, { method: 'POST', body });
+  }
+  if (!res.ok) throw new Error(spotifyWriteError(res.status, await res.text()));
+  savePlaylistId = (await res.json()).id;
+  playlists = null; // the Playlists tab shows it next time
+  return savePlaylistId;
+}
+
+/// 'added' or 'already' (it was in the playlist).
+async function addToSavePlaylist(t) {
+  const id = await ensureSavePlaylist();
+  playlistTracks.delete(id);
+  const have = await tracksOf(id).catch(() => []);
+  if (have.some((x) => x.uri && x.uri === t.uri)) return 'already';
+  let res = await sp(`/playlists/${encodeURIComponent(id)}/items`, { method: 'POST', body: { uris: [t.uri] } });
+  if (res.status === 404 || res.status === 405) {
+    res = await sp(`/playlists/${encodeURIComponent(id)}/tracks`, { method: 'POST', body: { uris: [t.uri] } });
+  }
+  if (!res.ok) throw new Error(spotifyWriteError(res.status, await res.text()));
+  playlistTracks.delete(id);
+  return 'added';
+}
+
+let liking = false;
+
+async function saveSong(t) {
+  if (liking) return;
+  liking = true;
+  const key = likeKey();
+  closeSheets();
+  toast('Guardando en proyector_13…');
+  try {
+    const r = await addToSavePlaylist(t);
+    if (key) savedHere.add(key);
+    toast(r === 'already' ? `"${t.title}" ya estaba en proyector_13` : `Guardada en proyector_13: ${t.title}`);
+  } catch (e) {
+    toast(e.message, { error: true });
+  } finally {
+    liking = false;
+    render();
+  }
+}
+
+/// The heart: the Spotify song as is, or a YouTube video looked up in Spotify.
+async function likeCurrent() {
+  if (!spotifyLoggedIn()) {
+    spotifyAuthorize('phone');
+    return;
+  }
+  if (projectorMode() === 'spotify' && track && track.uri) {
+    saveSong(track);
+    return;
+  }
+  const m = (health && health.media) || {};
+  if (!m.title) return;
+  const q = cleanVideoTitle(m.title) || m.title;
+  $('like-hint').textContent = 'Buscando en Spotify…';
+  $('like-list').replaceChildren();
+  openSheet('sheet-like');
+  let found = [];
+  try {
+    found = await searchSpotifyTracks(q);
+  } catch (e) {
+    $('like-hint').textContent = e.message;
+    return;
+  }
+  if ($('sheet-like').hidden) return;
+  if (!found.length) {
+    $('like-hint').textContent = `No encontré "${q}" en Spotify`;
+    return;
+  }
+  $('like-hint').textContent = '¿Cuál es? Toca la canción para guardarla.';
+  for (const t of found.slice(0, 3)) {
+    const li = document.createElement('li');
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'track-row';
+    row.append(cover(t.artUrl, '52px', 'i-note'));
+    const tx = document.createElement('span');
+    tx.className = 'pl-text';
+    const b = document.createElement('b');
+    b.textContent = t.title;
+    const s = document.createElement('small');
+    s.textContent = [t.artists.join(', '), t.album].filter(Boolean).join(' · ');
+    tx.append(b, s);
+    row.append(tx);
+    row.addEventListener('click', () => saveSong(t));
+    li.append(row);
+    $('like-list').append(li);
+  }
 }

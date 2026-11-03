@@ -161,7 +161,7 @@ function toast(text, { error = false } = {}) {
 // ---------------------------------------------------------------------------
 // Sheets.
 
-const sheets = ['sheet-screens', 'sheet-menu', 'sheet-add', 'sheet-paste', 'sheet-phone', 'sheet-rename', 'sheet-confirm', 'sheet-others'];
+const sheets = ['sheet-screens', 'sheet-menu', 'sheet-add', 'sheet-paste', 'sheet-phone', 'sheet-rename', 'sheet-confirm', 'sheet-others', 'sheet-like'];
 let afterPhoneName = null;
 
 function openSheet(id) {
@@ -1063,6 +1063,8 @@ $('chip-follow').addEventListener('click', () => {
   else setAutoFollow(!store.autoFollow);
 });
 $('chip-others').addEventListener('click', openOthers);
+$('btn-like').addEventListener('click', likeCurrent);
+$('mini-like').addEventListener('click', likeCurrent);
 $('spotify-row-btn').addEventListener('click', () => {
   if (spotifyLoggedIn()) spotifyLogout();
   else spotifyAuthorize('phone');
@@ -1186,6 +1188,7 @@ function renderMini(p) {
   $('mini-toggle').disabled = spotifyBusy || (mode !== 'spotify' && !m.title);
   // Always there; with a single video it plays the next search result.
   $('mini-next').disabled = spotifyBusy || (mode === 'free' && !nextResult(p));
+  renderLike($('mini-like'), mode === 'spotify' || !!m.title);
 }
 
 $('mini-open').addEventListener('click', () => {
@@ -1249,6 +1252,8 @@ function renderNow(p) {
     $('btn-send').disabled = spotifyBusy;
     $('btn-send').querySelector('span').textContent = spotifyBusy ? 'Buscando…' : 'Enviar el video';
 
+    renderLike($('btn-like'), online && !sendable && (mode === 'spotify' || !!m.title));
+
     const live = mode === 'spotify' ? showing : !!m.title;
     const chip = $('hero-chip');
     chip.hidden = !online || sendable;
@@ -1302,6 +1307,15 @@ function renderNow(p) {
   $('chip-others').hidden = others <= 0;
   $('chip-others-label').textContent = `Otro video (${others})`;
   $('btn-link-spotify').hidden = !(canFollow && !own && online);
+}
+
+/// The heart: only with a Spotify session; filled once saved this visit.
+function renderLike(btn, possible) {
+  btn.hidden = !(possible && spotifyLoggedIn());
+  const saved = savedHere.has(likeKey());
+  btn.classList.toggle('on', saved);
+  btn.querySelector('use').setAttribute('href', saved ? '#i-favorite' : '#i-heart-outline');
+  btn.setAttribute('aria-label', saved ? 'Guardada en proyector_13' : 'Guardar en proyector_13');
 }
 
 function paintHero(thumb, albumArt, queue) {
@@ -1571,7 +1585,7 @@ spotifyCallback().then((wasCallback) => {
     const have = String(spToken.scope || '').split(' ');
     if (!SPOTIFY_SCOPES.every((sc) => have.includes(sc))) {
       dropSpotify();
-      toast('Spotify pide un permiso nuevo (saltar y pausar): vuelve a conectar');
+      toast('Spotify pide un permiso nuevo (guardar en proyector_13): toca Conectar Spotify');
     } else {
       pollSpotify();
     }

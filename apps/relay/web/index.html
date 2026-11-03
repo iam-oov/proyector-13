@@ -60,6 +60,7 @@
     <symbol id="i-undo" viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62A7.95 7.95 0 0 1 12.5 10.5c3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></symbol>
     <symbol id="i-layers-clear" viewBox="0 0 24 24"><path d="m19.81 14.99 1.19-.92-1.43-1.43-1.19.92 1.43 1.43zm-.45-4.72L21 9l-9-7-2.91 2.27 7.87 7.88 2.4-1.88zM3.27 1 2 2.27l4.22 4.22L3 9l1.63 1.27L12 16l2.1-1.63 1.43 1.43L12 18.54l-7.37-5.73L3 14.07l9 7 4.95-3.85L20.73 21 22 19.73 3.27 1z"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></symbol>
+    <symbol id="i-heart-outline" viewBox="0 0 24 24"><path d="M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z"/></symbol>
     <symbol id="i-note" viewBox="0 0 24 24"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></symbol>
   </svg>
 
@@ -112,6 +113,7 @@
         <div class="hero" id="hero">
           <div class="hero-art" id="hero-art"><svg class="ph"><use href="#i-display"/></svg></div>
           <span class="live-chip on-hero" id="hero-chip"><svg><use href="#i-cast"/></svg><span id="hero-chip-text"></span></span>
+          <button class="hero-like" type="button" id="btn-like" aria-label="Guardar en proyector_13" hidden><svg><use href="#i-heart-outline"/></svg></button>
           <div class="hero-send" id="hero-send" hidden>
             <p id="hero-send-text"></p>
             <button class="btn primary" type="button" id="btn-send"><svg><use href="#i-cast"/></svg><span>Enviar el video</span></button>
@@ -206,6 +208,7 @@
       <span class="mini-art" id="mini-art"></span>
       <span class="mini-text"><b id="mini-title"></b><small id="mini-sub"></small></span>
     </button>
+    <button class="round mini-btn mini-like" type="button" id="mini-like" aria-label="Guardar en proyector_13" hidden><svg><use href="#i-heart-outline"/></svg></button>
     <button class="round mini-btn" type="button" data-media="next" id="mini-next" aria-label="Siguiente"><svg><use href="#i-next"/></svg></button>
     <button class="round mini-btn" type="button" data-media="toggle" id="mini-toggle" aria-label="Pausar"><svg><use id="mini-toggle-icon" href="#i-pause"/></svg></button>
   </div>
@@ -248,6 +251,14 @@
       <span class="row-text"><b id="spotify-row-label">Spotify sin conectar</b></span>
       <button class="link" type="button" id="spotify-row-btn">Conectar</button>
     </div>
+  </div>
+
+  <div class="sheet" id="sheet-like" role="dialog" aria-label="Guardar en proyector_13" hidden>
+    <div class="handle"></div>
+    <h3 class="sheet-title small">Guardar en proyector_13</h3>
+    <p id="like-hint">Buscando en Spotify…</p>
+    <ul class="like-list" id="like-list"></ul>
+    <div class="row-buttons"><button class="btn ghost" type="button" data-action="close">Ninguna es</button></div>
   </div>
 
   <div class="sheet" id="sheet-others" role="dialog" aria-label="Otros videos" hidden>

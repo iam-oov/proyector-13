@@ -68,6 +68,7 @@ async function tracksOf(id) {
       if (!t || t.is_local || t.type !== 'track') continue;
       const images = (t.album && t.album.images) || [];
       out.push({
+        uri: t.uri || null,
         title: t.name || '',
         artists: (t.artists || []).map((a) => a.name).filter(Boolean),
         artUrl: images.length ? images[images.length - 1].url : null,
