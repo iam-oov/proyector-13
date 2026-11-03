@@ -10,9 +10,11 @@ import 'state.dart';
 
 /// Where the relay lives. Override for local tests with
 /// `--dart-define=RELAY_URL=ws://<mac-ip>:8090/proyector/relay/ws`.
+/// Must be www: Cloudflare 301-redirects the apex to www, and a WebSocket
+/// handshake does not follow redirects.
 const relayUrl = String.fromEnvironment(
   'RELAY_URL',
-  defaultValue: 'wss://valdoh.com/proyector/relay/ws',
+  defaultValue: 'wss://www.valdoh.com/proyector/relay/ws',
 );
 
 /// Keeps an outbound WebSocket open to the relay so phones outside this

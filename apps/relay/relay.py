@@ -128,6 +128,19 @@ PROJECTORS = web.AppKey("projectors", dict)
 KEYS = web.AppKey("keys", KeyStore)
 
 
+@web.middleware
+async def _cache_headers(request: web.Request, handler):
+    """Cloudflare caches .js/.css/images at the edge by default, which would
+    keep serving the old PWA after a deploy. Static files get `no-cache` (the
+    browser revalidates with Last-Modified and usually gets a cheap 304); API
+    answers are never stored."""
+    response = await handler(request)
+    if "cache-control" not in response.headers:
+        api = request.path.startswith(PREFIX + "/api/")
+        response.headers["cache-control"] = "no-store" if api else "no-cache"
+    return response
+
+
 # Error messages are shown in the PWA, hence Spanish.
 def _error(status: int, message: str) -> web.Response:
     return web.json_response({"ok": False, "error": message}, status=status)
@@ -235,7 +248,7 @@ async def _forward(request: web.Request) -> web.Response:
 
 
 def create_app(keys_path: Path | None = None) -> web.Application:
-    app = web.Application(client_max_size=MAX_BODY)
+    app = web.Application(client_max_size=MAX_BODY, middlewares=[_cache_headers])
     app[VERSION] = _version()
     app[PROJECTORS] = {}
     app[KEYS] = KeyStore(

@@ -94,3 +94,10 @@ async def test_version_and_index(client):
     res = await client.get("/proyector/")
     assert res.status == 200
     assert "Proyector" in await res.text()
+
+
+async def test_cache_headers(client):
+    static = await client.get("/proyector/")
+    assert static.headers["cache-control"] == "no-cache"
+    api = await client.get(f"/proyector/api/p/{ID}/health")
+    assert api.headers["cache-control"] == "no-store"
