@@ -3,6 +3,7 @@ import base64
 
 import pytest
 
+import relay
 from relay import create_app
 
 ID = "aknx93pfcuwu"
@@ -101,3 +102,64 @@ async def test_cache_headers(client):
     assert static.headers["cache-control"] == "no-cache"
     api = await client.get(f"/proyector/api/p/{ID}/health")
     assert api.headers["cache-control"] == "no-store"
+
+
+def fake_searcher(results):
+    calls = []
+
+    async def search(query):
+        calls.append(query)
+        return results
+
+    return search, calls
+
+
+VIDEO = {"id": "dQw4w9WgXcQ", "title": "Song", "channel": "Artist", "thumb": None, "duration": "3:33"}
+
+
+async def test_search_uses_cache(aiohttp_client, tmp_path):
+    search, calls = fake_searcher([VIDEO])
+    client = await aiohttp_client(create_app(tmp_path / "keys.json", searcher=search))
+    for q in ("  Luis   Miguel ", "luis miguel"):
+        res = await client.get("/proyector/api/search", params={"q": q})
+        assert res.status == 200
+        assert (await res.json())["results"] == [VIDEO]
+        assert res.headers["cache-control"] == "no-store"
+    # Same query after normalizing: YouTube is asked only once.
+    assert calls == ["Luis Miguel"]
+
+
+async def test_search_needs_query(client):
+    res = await client.get("/proyector/api/search", params={"q": "   "})
+    assert res.status == 400
+
+
+async def test_search_rate_limit_and_errors(aiohttp_client, tmp_path):
+    async def broken(query):
+        raise RuntimeError("down")
+
+    app = create_app(tmp_path / "keys.json", searcher=broken)
+    app[relay.SEARCH_LIMIT].limit = 2
+    client = await aiohttp_client(app)
+    codes = [(await client.get("/proyector/api/search", params={"q": f"q{i}"})).status for i in range(3)]
+    assert codes == [502, 502, 429]
+
+
+def test_parse_youtube_search():
+    data = {"contents": {"twoColumnSearchResultsRenderer": {"primaryContents": {"sectionListRenderer": {"contents": [
+        {"itemSectionRenderer": {"contents": [
+            {"adSlotRenderer": {}},
+            {"videoRenderer": {
+                "videoId": "dQw4w9WgXcQ",
+                "title": {"runs": [{"text": "Never "}, {"text": "Gonna"}]},
+                "ownerText": {"runs": [{"text": "Rick"}]},
+                "thumbnail": {"thumbnails": [{"url": "https://i.ytimg.com/a.jpg"}]},
+                "lengthText": {"simpleText": "3:33"},
+            }},
+        ]}},
+    ]}}}}}
+    assert relay.parse_youtube_search(data) == [{
+        "id": "dQw4w9WgXcQ", "title": "Never Gonna", "channel": "Rick",
+        "thumb": "https://i.ytimg.com/a.jpg", "duration": "3:33",
+    }]
+    assert relay.parse_youtube_search({}) == []

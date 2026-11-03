@@ -2,25 +2,143 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Proyector</title>
-  <style>
-    :root { color-scheme: dark; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #121116; color: #ece9f5; font: 16px/1.5 system-ui, sans-serif; }
-    main { padding: 24px; text-align: center; }
-    small { color: #8f8a9e; }
-  </style>
+  <meta name="theme-color" content="#0f0f14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Proyector">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <header class="top">
+    <button id="screen-chip" class="chip" type="button" aria-haspopup="dialog">
+      <span class="dot" id="screen-dot"></span>
+      <span id="screen-name">Proyector</span>
+      <svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>
+    </button>
+  </header>
+
   <main>
-    <h1>Proyector</h1>
-    <p>La app web está en construcción.</p>
-    <small id="v"></small>
+    <!-- First run: no projector yet. -->
+    <section id="view-welcome" class="view" hidden>
+      <div class="welcome">
+        <img src="icon-180.png" alt="" class="welcome-icon">
+        <h1>Controla tu proyector</h1>
+        <p>En el proyector abre <b>Vincular teléfono</b> (el botón del código QR) y escanéalo desde aquí.</p>
+        <button class="btn primary big" type="button" data-action="scan">Escanear QR</button>
+        <button class="btn ghost" type="button" data-action="paste">Tengo un código</button>
+      </div>
+    </section>
+
+    <section id="view-now" class="view" hidden>
+      <div class="card notice" id="now-offline" hidden>
+        <h3 id="offline-title">El proyector no está conectado</h3>
+        <p id="offline-text">Revisa que esté prendido y con internet. Esto se actualiza solo.</p>
+        <button class="btn primary" type="button" data-action="scan" id="offline-rescan" hidden>Escanear el QR otra vez</button>
+      </div>
+
+      <div class="card now">
+        <div class="art" id="now-art"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></div>
+        <p class="now-state" id="now-state">Nada sonando</p>
+        <h2 class="now-title" id="now-title">Busca algo para ponerlo en el proyector</h2>
+        <p class="now-queue" id="now-queue" hidden></p>
+
+        <div class="transport" id="transport">
+          <button class="round" type="button" data-media="back" aria-label="Atrasar 10 segundos">
+            <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/><text x="12" y="16" text-anchor="middle">10</text></svg>
+          </button>
+          <button class="round main" type="button" data-media="toggle" id="btn-toggle" aria-label="Reproducir">
+            <svg viewBox="0 0 24 24" id="icon-play"><path d="M8 5v14l11-7z"/></svg>
+            <svg viewBox="0 0 24 24" id="icon-pause" hidden><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          </button>
+          <button class="round" type="button" data-media="fwd" aria-label="Adelantar 10 segundos">
+            <svg viewBox="0 0 24 24"><path d="M12 5V1l5 5-5 5V7a6 6 0 1 0 6 6h2a8 8 0 1 1-8-8z"/><text x="12" y="16" text-anchor="middle">10</text></svg>
+          </button>
+        </div>
+        <div class="row-buttons">
+          <button class="btn ghost" type="button" data-media="stop">Detener</button>
+          <button class="btn ghost" type="button" data-media="next" id="btn-next" hidden>Siguiente</button>
+        </div>
+      </div>
+
+      <div class="card volume">
+        <button class="round small" type="button" data-volume="down" aria-label="Bajar volumen">
+          <svg viewBox="0 0 24 24"><path d="M5 11h14v2H5z"/></svg>
+        </button>
+        <div class="vol-bar" aria-hidden="true"><div id="vol-fill"></div></div>
+        <button class="round small" type="button" data-volume="up" aria-label="Subir volumen">
+          <svg viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+        </button>
+        <button class="round small" type="button" data-volume="mute" id="btn-mute" aria-label="Silenciar">
+          <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0 0 14 8v8a4.5 4.5 0 0 0 2.5-4z"/></svg>
+        </button>
+      </div>
+    </section>
+
+    <section id="view-search" class="view" hidden>
+      <form id="search-form" class="search" autocomplete="off">
+        <input id="search-input" type="search" enterkeyhint="search" placeholder="Canción, artista o video" aria-label="Buscar en YouTube">
+        <button class="btn primary" type="submit">Buscar</button>
+      </form>
+      <p class="hint" id="search-hint">Toca un resultado para ponerlo en el proyector.</p>
+      <ul class="results" id="results"></ul>
+    </section>
   </main>
-  <script>
-    fetch('version.json').then(r => r.json()).then(j => {
-      document.getElementById('v').textContent = `versión ${j.version} · ${j.projectors} proyector(es) en línea`;
-    }).catch(() => {});
-  </script>
+
+  <nav class="tabs" id="tabs" hidden>
+    <button type="button" data-tab="now" class="on">
+      <svg viewBox="0 0 24 24"><path d="M21 3H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5v2h8v-2h5a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 14H3V5h18v12zM10 8v6l5-3z"/></svg>
+      <span>Ahora</span>
+    </button>
+    <button type="button" data-tab="search">
+      <svg viewBox="0 0 24 24"><path d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 9.5 16a6.5 6.5 0 0 0 4.2-1.6l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z"/></svg>
+      <span>Buscar</span>
+    </button>
+  </nav>
+
+  <!-- Bottom sheets. -->
+  <div class="scrim" id="scrim" hidden></div>
+
+  <div class="sheet" id="sheet-screens" role="dialog" aria-label="Proyectores" hidden>
+    <h3>Proyectores</h3>
+    <ul class="screens" id="screens-list"></ul>
+    <button class="btn primary" type="button" data-action="scan">Agregar proyector</button>
+    <button class="btn ghost" type="button" data-action="paste">Agregar con código</button>
+    <p class="phone-line">Este teléfono se llama <b id="phone-name-label"></b> · <button class="link" type="button" data-action="rename-phone">cambiar</button></p>
+    <p class="version" id="version"></p>
+  </div>
+
+  <div class="sheet" id="sheet-paste" role="dialog" aria-label="Agregar con código" hidden>
+    <h3>Agregar con código</h3>
+    <p>Pega el código que te mandaron (empieza con <code>proyector://</code>).</p>
+    <textarea id="paste-input" rows="3" placeholder="proyector://pair?…" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+    <div class="row-buttons">
+      <button class="btn ghost" type="button" id="paste-clipboard">Pegar</button>
+      <button class="btn primary" type="button" id="paste-add">Agregar</button>
+    </div>
+  </div>
+
+  <div class="sheet" id="sheet-phone" role="dialog" aria-label="Nombre del teléfono" hidden>
+    <h3>¿Cómo se llama este teléfono?</h3>
+    <p>El proyector lo muestra en "Conectado".</p>
+    <input id="phone-input" type="text" maxlength="40" placeholder="iPhone de Juan" autocomplete="off">
+    <button class="btn primary" type="button" id="phone-save">Listo</button>
+  </div>
+
+  <div class="scanner" id="scanner" hidden>
+    <video id="scanner-video" playsinline muted autoplay></video>
+    <div class="scanner-frame" aria-hidden="true"></div>
+    <p class="scanner-text" id="scanner-text">Apunta al código QR del proyector</p>
+    <button class="btn ghost on-dark" type="button" id="scanner-close">Cancelar</button>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="app.js"></script>
 </body>
 </html>

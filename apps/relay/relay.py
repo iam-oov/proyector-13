@@ -22,9 +22,12 @@ import os
 import re
 import secrets
 import subprocess
+import time
+from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from aiohttp import WSMsgType, web
+from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
@@ -247,7 +250,156 @@ async def _forward(request: web.Request) -> web.Response:
     )
 
 
-def create_app(keys_path: Path | None = None) -> web.Application:
+# --- YouTube search -------------------------------------------------------
+#
+# The PWA cannot call youtube.com itself (no CORS headers), so the relay
+# searches for it. Same request as searchYouTubeWeb in packages/shared: the
+# web client's InnerTube endpoint, which has no daily quota.
+
+YOUTUBE_SEARCH_URL = "https://www.youtube.com/youtubei/v1/search?prettyPrint=false"
+SEARCH_MAX_RESULTS = 8
+SEARCH_CACHE_SIZE = 300
+SEARCH_CACHE_TTL = 6 * 3600
+# Per client IP, so that nobody turns the relay into a free search proxy and
+# gets the server's IP blocked by YouTube.
+SEARCH_RATE = 30
+SEARCH_RATE_WINDOW = 60.0
+
+Searcher = Callable[[str], Awaitable[list[dict]]]
+
+
+def parse_youtube_search(data: dict, limit: int = SEARCH_MAX_RESULTS) -> list[dict]:
+    """Video results from an InnerTube search answer, in the shape the PWA uses."""
+
+    def runs(o: object) -> str:
+        items = o.get("runs") if isinstance(o, dict) else None
+        return "".join(str(r.get("text", "")) for r in items or [])
+
+    sections = (
+        data.get("contents", {})
+        .get("twoColumnSearchResultsRenderer", {})
+        .get("primaryContents", {})
+        .get("sectionListRenderer", {})
+        .get("contents", [])
+    )
+    out: list[dict] = []
+    for section in sections:
+        for item in section.get("itemSectionRenderer", {}).get("contents", []):
+            v = item.get("videoRenderer")
+            if not v or not v.get("videoId"):
+                continue
+            thumbs = v.get("thumbnail", {}).get("thumbnails") or [{}]
+            out.append({
+                "id": v["videoId"],
+                "title": runs(v.get("title")),
+                "channel": runs(v.get("ownerText")),
+                "thumb": thumbs[0].get("url"),
+                "duration": v.get("lengthText", {}).get("simpleText"),
+            })
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def youtube_searcher(session: ClientSession) -> Searcher:
+    async def search(query: str) -> list[dict]:
+        payload = {
+            "context": {"client": {"clientName": "WEB", "clientVersion": "2.20251001.00.00", "hl": "es", "gl": "MX"}},
+            "query": query,
+            # "Videos only" filter.
+            "params": "EgIQAQ%3D%3D",
+        }
+        async with session.post(
+            YOUTUBE_SEARCH_URL,
+            json=payload,
+            headers={"user-agent": "Mozilla/5.0"},
+            timeout=ClientTimeout(total=8),
+        ) as r:
+            if r.status != 200:
+                raise RuntimeError(f"YouTube {r.status}")
+            return parse_youtube_search(await r.json(content_type=None))
+
+    return search
+
+
+class SearchCache:
+    """Last answers by normalized query, so repeated searches skip YouTube."""
+
+    def __init__(self, size: int = SEARCH_CACHE_SIZE, ttl: float = SEARCH_CACHE_TTL):
+        self.size, self.ttl = size, ttl
+        self._items: OrderedDict[str, tuple[float, list[dict]]] = OrderedDict()
+
+    def get(self, key: str) -> list[dict] | None:
+        hit = self._items.get(key)
+        if hit is None or time.monotonic() - hit[0] > self.ttl:
+            return None
+        self._items.move_to_end(key)
+        return hit[1]
+
+    def put(self, key: str, results: list[dict]) -> None:
+        self._items[key] = (time.monotonic(), results)
+        self._items.move_to_end(key)
+        while len(self._items) > self.size:
+            self._items.popitem(last=False)
+
+
+class RateLimiter:
+    def __init__(self, limit: int = SEARCH_RATE, window: float = SEARCH_RATE_WINDOW):
+        self.limit, self.window = limit, window
+        self._hits: dict[str, list[float]] = {}
+
+    def allow(self, who: str) -> bool:
+        now = time.monotonic()
+        hits = [t for t in self._hits.get(who, []) if now - t < self.window]
+        allowed = len(hits) < self.limit
+        if allowed:
+            hits.append(now)
+        self._hits[who] = hits
+        if len(self._hits) > 10_000:
+            # Forget idle clients so the table cannot grow forever.
+            self._hits = {k: v for k, v in self._hits.items() if v and now - v[-1] < self.window}
+        return allowed
+
+
+SEARCHER = web.AppKey("searcher", object)
+SEARCH_CACHE = web.AppKey("search_cache", SearchCache)
+SEARCH_LIMIT = web.AppKey("search_limit", RateLimiter)
+
+
+@routes.get(PREFIX + "/api/search")
+async def _search(request: web.Request) -> web.Response:
+    query = " ".join(request.query.get("q", "").split())[:120]
+    if not query:
+        return _error(400, "escribe qué buscar")
+    # Behind Cloudflare the client's address comes in this header.
+    who = request.headers.get("cf-connecting-ip") or request.remote or "?"
+    key = query.lower()
+    cache: SearchCache = request.app[SEARCH_CACHE]
+    results = cache.get(key)
+    if results is None:
+        if not request.app[SEARCH_LIMIT].allow(who):
+            return _error(429, "demasiadas búsquedas, espera un minuto")
+        try:
+            results = await request.app[SEARCHER](query)
+        except Exception:
+            return _error(502, "YouTube no respondió, intenta otra vez")
+        if results:
+            cache.put(key, results)
+    return web.json_response({"ok": True, "results": results})
+
+
+async def _http_session(app: web.Application):
+    """Shared client session for the YouTube searches, unless a test injected
+    its own searcher."""
+    if app[SEARCHER] is not None:
+        yield
+        return
+    async with ClientSession() as session:
+        app[SEARCHER] = youtube_searcher(session)
+        yield
+
+
+def create_app(keys_path: Path | None = None, searcher: Searcher | None = None) -> web.Application:
     app = web.Application(client_max_size=MAX_BODY, middlewares=[_cache_headers])
     app[VERSION] = _version()
     app[PROJECTORS] = {}
@@ -255,6 +407,10 @@ def create_app(keys_path: Path | None = None) -> web.Application:
         keys_path
         or Path(os.environ.get("RELAY_STATE_DIR", Path.home() / ".local/state/proyector-relay")) / "keys.json"
     )
+    app[SEARCHER] = searcher
+    app[SEARCH_CACHE] = SearchCache()
+    app[SEARCH_LIMIT] = RateLimiter()
+    app.cleanup_ctx.append(_http_session)
     app.add_routes(routes)
     # The rest of the PWA's files (js, css, icons, manifest).
     app.router.add_static(PREFIX + "/", WEB_DIR, append_version=False)
