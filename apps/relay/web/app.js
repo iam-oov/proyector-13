@@ -517,11 +517,30 @@ function queueMode() {
   return !!(q.active && q.info);
 }
 
+/// With a single video playing, "Siguiente" plays the next result of the list
+/// it came from (Buscar or the assistant), or else the next of the song's
+/// other videos. Null when there is none.
+function nextResult(p) {
+  const sent = p && store.lastSent[p.id];
+  if (!sent) return null;
+  for (const list of [results, candidates]) {
+    const i = list.findIndex((v) => v.id === sent.id);
+    if (i >= 0 && i + 1 < list.length) return list[i + 1];
+  }
+  return null;
+}
+
 async function media(action) {
   const p = current();
   if (!p) return;
   if (projectorMode() === 'spotify' && (action === 'toggle' || action === 'next' || action === 'stop')) {
     await spotifyMedia(p, action);
+    return;
+  }
+  if (action === 'next' && projectorMode() === 'free') {
+    // A single video (from Buscar or the voice): the next one of the list it came from.
+    const v = nextResult(p);
+    if (v) await play(v);
     return;
   }
   let r;
@@ -1165,8 +1184,8 @@ function renderMini(p) {
   $('mini-toggle-icon').setAttribute('href', playing ? '#i-pause' : '#i-play');
   $('mini-toggle').setAttribute('aria-label', playing ? 'Pausar' : 'Reanudar');
   $('mini-toggle').disabled = spotifyBusy || (mode !== 'spotify' && !m.title);
-  $('mini-next').hidden = mode === 'free';
-  $('mini-next').disabled = spotifyBusy;
+  // Always there; with a single video it plays the next search result.
+  $('mini-next').disabled = spotifyBusy || (mode === 'free' && !nextResult(p));
 }
 
 $('mini-open').addEventListener('click', () => {
@@ -1259,7 +1278,7 @@ function renderNow(p) {
     let ok;
     if (a === 'stop') ok = mode !== 'free' || video;
     else if (a === 'toggle') ok = mode === 'spotify' || video;
-    else if (a === 'next') ok = mode !== 'free';
+    else if (a === 'next') ok = mode !== 'free' || (video && !!nextResult(p));
     else ok = video;
     b.disabled = !ok || spotifyBusy;
   }
