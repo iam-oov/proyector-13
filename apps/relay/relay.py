@@ -27,7 +27,10 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+import anthropic
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
+
+import assistant
 
 ROOT = Path(__file__).resolve().parent
 WEB_DIR = ROOT / "web"
@@ -169,7 +172,7 @@ async def _index(request: web.Request) -> web.Response:
 async def _version_json(request: web.Request) -> web.Response:
     app = request.app
     return web.json_response(
-        {"version": app[VERSION], "projectors": len(app[PROJECTORS])},
+        {"version": app[VERSION], "projectors": len(app[PROJECTORS]), "assistant": bool(_assistant_key(app))},
         headers={"cache-control": "no-store"},
     )
 
@@ -467,7 +470,139 @@ async def _http_session(app: web.Application):
         yield
 
 
-def create_app(keys_path: Path | None = None, searcher: Searcher | None = None) -> web.Application:
+# --- Voice assistant ------------------------------------------------------
+#
+# The PWA sends the sentence it heard; assistant.py asks Claude what to do and
+# the relay does it on the projector. The Anthropic key stays on the server:
+# ANTHROPIC_API_KEY, or the file anthropic.key in the state directory (read
+# on demand, so writing the file is enough, no restart).
+
+ASSISTANT_RATE = 10
+ASSISTANT_RATE_WINDOW = 60.0
+# Every sentence costs money: a hard cap per day for the whole relay.
+ASSISTANT_DAILY = 300
+TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+
+STATE_DIR = web.AppKey("state_dir", Path)
+# One-item list: filled on the first request after the key appears (an
+# app's state cannot be replaced once it is running).
+ASKER = web.AppKey("asker", list)
+ASSISTANT_LIMIT = web.AppKey("assistant_limit", RateLimiter)
+ASSISTANT_DAY = web.AppKey("assistant_day", list)
+
+
+def _assistant_key(app: web.Application) -> str:
+    if key := os.environ.get("ANTHROPIC_API_KEY", "").strip():
+        return key
+    try:
+        return (app[STATE_DIR] / "anthropic.key").read_text().strip()
+    except OSError:
+        return ""
+
+
+def _asker(app: web.Application) -> assistant.Asker | None:
+    holder = app[ASKER]
+    if holder[0] is None and (key := _assistant_key(app)):
+        holder[0] = assistant.anthropic_asker(key)
+    return holder[0]
+
+
+async def _call(projector: Projector, token: str, method: str, path: str, body: dict | None) -> tuple[int, dict]:
+    headers = {"authorization": f"Bearer {token}"}
+    raw = b""
+    if body is not None:
+        headers["content-type"] = "application/json"
+        raw = json.dumps(body).encode()
+    try:
+        res = await projector.request(method, path, "", headers, raw)
+    except asyncio.TimeoutError:
+        raise assistant.Fail(f"{projector.name or 'El proyector'} no contestó a tiempo") from None
+    except ConnectionError:
+        raise assistant.Fail(f"{projector.name or 'El proyector'} se desconectó") from None
+    try:
+        data = json.loads(base64.b64decode(res.get("body") or "") or b"{}")
+    except ValueError:
+        data = {}
+    return int(res.get("status", 502)), data if isinstance(data, dict) else {}
+
+
+@routes.post(PREFIX + "/api/assistant")
+async def _assistant(request: web.Request) -> web.Response:
+    app = request.app
+    ask = _asker(app)
+    if ask is None:
+        return _error(503, "El asistente no está configurado en el servidor")
+    try:
+        data = await request.json()
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        return _error(400, "petición inválida")
+    said = " ".join(str(data.get("said") or "").split())[:300]
+    if not said:
+        return _error(400, "No te escuché")
+    projectors = [
+        {"id": p["id"], "token": p["token"], "name": str(p.get("name") or "Proyector")[:40]}
+        for p in (data.get("projectors") or [])[:20]
+        if isinstance(p, dict) and ID_RE.match(str(p.get("id", ""))) and TOKEN_RE.match(str(p.get("token", "")))
+    ]
+    selected = str(data.get("selected") or "")
+    if not any(p["id"] == selected for p in projectors):
+        return _error(400, "Elige un proyector")
+
+    who = request.headers.get("cf-connecting-ip") or request.remote or "?"
+    if not app[ASSISTANT_LIMIT].allow(who):
+        return _error(429, "Demasiadas peticiones, espera un minuto")
+    day = time.strftime("%Y-%m-%d")
+    if app[ASSISTANT_DAY][0] != day:
+        app[ASSISTANT_DAY][:] = [day, 0]
+    if app[ASSISTANT_DAY][1] >= ASSISTANT_DAILY:
+        return _error(429, "El asistente ya se usó mucho hoy, intenta mañana")
+
+    connected: dict[str, Projector] = app[PROJECTORS]
+
+    async def connect(pid: str, token: str) -> assistant.Target:
+        name = next((p["name"] for p in projectors if p["id"] == pid), "El proyector")
+        proj = connected.get(pid)
+        if proj is None:
+            raise assistant.Fail(f"{name} no está conectado")
+
+        async def call(method: str, path: str, body: dict | None) -> tuple[int, dict]:
+            return await _call(proj, token, method, path, body)
+
+        # An authenticated call first: a wrong token costs no Claude tokens.
+        status, volume = await call("GET", "/volume", None)
+        if status == 401:
+            raise assistant.Fail(f"El código de {name} cambió: escanea su QR otra vez")
+        _, health = await call("GET", "/health", None)
+        return assistant.Target(pid, name, call, volume if status == 200 else None, health)
+
+    try:
+        # Verify the chosen projector before counting the sentence.
+        first = next(p for p in projectors if p["id"] == selected)
+        target = await connect(first["id"], first["token"])
+        app[ASSISTANT_DAY][1] += 1
+        out = await assistant.run(
+            said, projectors, target, connect, set(connected), ask, app[SEARCHER],
+        )
+    except assistant.Fail as e:
+        return _error(422, str(e))
+    except anthropic.AuthenticationError:
+        return _error(503, "La key del asistente no es válida")
+    except anthropic.RateLimitError:
+        return _error(429, "El asistente está ocupado, intenta en un momento")
+    except (anthropic.APIConnectionError, anthropic.APITimeoutError):
+        return _error(504, "El asistente no contestó, intenta otra vez")
+    except anthropic.APIStatusError:
+        return _error(502, "El asistente falló, intenta otra vez")
+    return web.json_response({"ok": True, "heard": said, **out})
+
+
+def create_app(
+    keys_path: Path | None = None,
+    searcher: Searcher | None = None,
+    asker: assistant.Asker | None = None,
+) -> web.Application:
     app = web.Application(client_max_size=MAX_BODY, middlewares=[_cache_headers])
     app[VERSION] = _version()
     app[PROJECTORS] = {}
@@ -480,6 +615,10 @@ def create_app(keys_path: Path | None = None, searcher: Searcher | None = None) 
     app[SEARCH_LIMIT] = RateLimiter()
     app[CODES] = {}
     app[CODE_LIMIT] = RateLimiter(CODE_RATE, CODE_RATE_WINDOW)
+    app[STATE_DIR] = app[KEYS].path.parent
+    app[ASKER] = [asker]
+    app[ASSISTANT_LIMIT] = RateLimiter(ASSISTANT_RATE, ASSISTANT_RATE_WINDOW)
+    app[ASSISTANT_DAY] = ["", 0]
     app.cleanup_ctx.append(_http_session)
     app.add_routes(routes)
     # The rest of the PWA's files (js, css, icons, manifest).

@@ -44,6 +44,17 @@
         <button class="btn primary" type="button" data-action="scan" id="offline-rescan" hidden>Escanear el QR otra vez</button>
       </div>
 
+      <!-- Voice assistant: shown when the relay has an Anthropic key. -->
+      <div class="card assist-card" id="assist" hidden>
+        <form class="assist" id="assist-form" autocomplete="off">
+          <input id="assist-input" type="text" enterkeyhint="send" placeholder="Dime qué poner…" aria-label="Pídele algo al proyector">
+          <button class="round mic" type="button" id="assist-mic" aria-label="Hablar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+          </button>
+        </form>
+        <p class="assist-status" id="assist-status" role="status" aria-live="polite">Ejemplo: "pon cumbias para limpiar y súbele tantito"</p>
+      </div>
+
       <div class="card now">
         <div class="art" id="now-art"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg></div>
         <p class="now-state" id="now-state">Nada sonando</p>

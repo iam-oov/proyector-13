@@ -594,6 +594,126 @@ async function play(video, btn) {
 }
 
 // ---------------------------------------------------------------------------
+// Voice assistant. The relay does the work (Claude + the projector calls), so
+// the Anthropic key never reaches this page. Speech goes through the browser's
+// SpeechRecognition when there is one; otherwise the text box, where the
+// phone keyboard's own microphone dictates.
+
+const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let assistantOn = false;
+let asking = false;
+let recognizer = null;
+
+function assistStatus(text, kind = '') {
+  const el = $('assist-status');
+  el.textContent = text;
+  el.className = `assist-status${kind ? ` ${kind}` : ''}`;
+}
+
+async function ask(text) {
+  const said = String(text || '').trim();
+  const p = current();
+  if (!said || !p || asking) return;
+  asking = true;
+  $('assist-input').value = said;
+  $('assist-input').blur();
+  assistStatus('Pensando…', 'busy');
+  try {
+    const res = await fetch('api/assistant', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        said,
+        selected: p.id,
+        projectors: store.projectors.map(({ id, token, name }) => ({ id, token, name })),
+      }),
+      cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) {
+      assistStatus(data.error || 'No pude, intenta otra vez', 'error');
+      return;
+    }
+    $('assist-input').value = '';
+    assistStatus(data.reply || 'Listo', 'done');
+    // "Ahora en la recámara": the assistant changed projector.
+    if (data.selected && data.selected !== store.selected && store.projectors.some((x) => x.id === data.selected)) {
+      select(data.selected);
+    }
+    const sel = current();
+    if (data.played && sel) {
+      store.lastSent[sel.id] = { id: data.played.id, title: data.played.title, at: Date.now() };
+      saveStore();
+    }
+    volume = null;
+    setTimeout(refresh, 1200);
+  } catch {
+    assistStatus('Sin conexión a internet', 'error');
+  } finally {
+    asking = false;
+  }
+}
+
+function listen() {
+  if (asking) return;
+  if (recognizer) {
+    recognizer.stop();
+    return;
+  }
+  if (!Recognition) {
+    // The keyboard has its own microphone key for dictation.
+    $('assist-input').focus();
+    assistStatus('Toca el micrófono del teclado y dime qué poner');
+    return;
+  }
+  const r = new Recognition();
+  r.lang = 'es-MX';
+  r.interimResults = true;
+  r.continuous = false;
+  let finalText = '';
+  r.onresult = (e) => {
+    let text = '';
+    for (const res of e.results) {
+      text += res[0].transcript;
+      if (res.isFinal) finalText = text;
+    }
+    $('assist-input').value = text;
+  };
+  r.onerror = (e) => {
+    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+      assistStatus('Sin permiso para el micrófono: usa el micrófono del teclado', 'error');
+      $('assist-input').focus();
+    } else if (e.error === 'no-speech') {
+      assistStatus('No te escuché, intenta otra vez');
+    }
+  };
+  r.onend = () => {
+    recognizer = null;
+    $('assist-mic').classList.remove('listening');
+    const text = finalText || $('assist-input').value;
+    if (text.trim()) ask(text);
+  };
+  recognizer = r;
+  $('assist-input').value = '';
+  $('assist-mic').classList.add('listening');
+  assistStatus('Te escucho…', 'busy');
+  try {
+    r.start();
+  } catch {
+    recognizer = null;
+    $('assist-mic').classList.remove('listening');
+    $('assist-input').focus();
+    assistStatus('Toca el micrófono del teclado y dime qué poner');
+  }
+}
+
+$('assist-mic').addEventListener('click', listen);
+$('assist-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  ask($('assist-input').value);
+});
+
+// ---------------------------------------------------------------------------
 // Rendering.
 
 function setTab(name) {
@@ -611,6 +731,7 @@ function render() {
   $('view-welcome').hidden = !!p;
   $('view-now').hidden = !p || tab !== 'now';
   $('view-search').hidden = !p || tab !== 'search';
+  $('assist').hidden = !assistantOn;
   if (!p) return;
 
   const st = status[p.id] || 'unknown';
@@ -787,6 +908,10 @@ async function checkVersion() {
   try {
     const v = await (await fetch('version.json', { cache: 'no-store' })).json();
     if (typeof v.version === 'string') serverVersion = v.version;
+    if (typeof v.assistant === 'boolean' && v.assistant !== assistantOn) {
+      assistantOn = v.assistant;
+      render();
+    }
   } catch {
     // Offline: keep what we knew.
   }

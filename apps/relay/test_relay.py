@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import json
 
 import pytest
 
@@ -224,3 +225,117 @@ def test_parse_youtube_search():
         "thumb": "https://i.ytimg.com/a.jpg", "duration": "3:33",
     }]
     assert relay.parse_youtube_search({}) == []
+
+
+# --- Voice assistant ---------------------------------------------------------
+
+TOKEN = "Qm5y1xk2Qm5y1xk2Qm5y1xk2"
+
+
+def fake_asker(*answers):
+    """Answers the Claude calls in order and records what it was asked."""
+    asked = []
+
+    async def ask(system, user, schema):
+        asked.append(user)
+        return answers[len(asked) - 1]
+
+    return ask, asked
+
+
+def act(action, **kw):
+    base = {"action": action, "search_query": "", "prefer": "none", "control": "none",
+            "volume": 0, "start_seconds": 0, "seconds": 0, "screen": ""}
+    return {**base, **kw}
+
+
+def projector_answers(ws, routes, seen):
+    """Answers every request from `routes` ({(method, path): (status, body)})."""
+    async def loop():
+        while True:
+            req = await ws.receive_json()
+            key = (req["method"], req["path"])
+            body = base64.b64decode(req["body"])
+            seen.append((key, json.loads(body) if body else None, req["headers"].get("authorization")))
+            status, out = routes.get(key, (404, {"ok": False}))
+            await ws.send_json({"type": "res", "rid": req["rid"], "status": status,
+                                "headers": {"content-type": "application/json"},
+                                "body": base64.b64encode(json.dumps(out).encode()).decode()})
+    return asyncio.create_task(loop())
+
+
+ROUTES = {
+    ("GET", "/volume"): (200, {"ok": True, "level": 5, "max": 15, "muted": False}),
+    ("GET", "/health"): (200, {"ok": True, "media": {"title": None, "playing": False}, "queue": {}}),
+    ("POST", "/play"): (200, {"ok": True}),
+    ("POST", "/volume"): (200, {"ok": True, "level": 9, "max": 15, "muted": False}),
+}
+
+
+async def assistant_client(aiohttp_client, tmp_path, ask, search=None):
+    search = search or (lambda q: asyncio.sleep(0, [VIDEO, {**VIDEO, "id": "b" * 11, "title": "Otro"}]))
+    client = await aiohttp_client(create_app(tmp_path / "keys.json", searcher=search, asker=ask))
+    ws = await connect(client)
+    await ws.receive_json()
+    return client, ws
+
+
+def said(text):
+    return {"said": text, "selected": ID, "projectors": [{"id": ID, "token": TOKEN, "name": "Sala"}]}
+
+
+async def test_assistant_plays_and_sets_volume(aiohttp_client, tmp_path):
+    ask, asked = fake_asker(
+        {"actions": [act("play", search_query="cumbias mix", prefer="long_mix"), act("control", control="volume_up", volume=4)],
+         "reply": "Pongo cumbias y subo el volumen"},
+        {"index": 1, "reply": "Pongo Otro"},
+    )
+    client, ws = await assistant_client(aiohttp_client, tmp_path, ask)
+    seen = []
+    task = projector_answers(ws, ROUTES, seen)
+    res = await client.post("/proyector/api/assistant", json=said("pon cumbias y súbele"))
+    task.cancel()
+    data = await res.json()
+    assert res.status == 200, data
+    assert data["reply"] == "Pongo cumbias y subo el volumen"
+    assert data["played"] == {"id": "b" * 11, "title": "Otro"}
+    # Context tells Claude the volume scale; the phone's token goes with every call.
+    assert "Volumen: 5 de 15" in asked[0]
+    assert all(auth == f"Bearer {TOKEN}" for _, _, auth in seen)
+    calls = [(k, b) for k, b, _ in seen if k[0] == "POST"]
+    assert calls == [(("POST", "/play"), {"videoId": "b" * 11, "title": "Otro"}), (("POST", "/volume"), {"level": 9})]
+
+
+async def test_assistant_wrong_token_costs_nothing(aiohttp_client, tmp_path):
+    ask, asked = fake_asker()
+    client, ws = await assistant_client(aiohttp_client, tmp_path, ask)
+    task = projector_answers(ws, {("GET", "/volume"): (401, {"ok": False})}, [])
+    res = await client.post("/proyector/api/assistant", json=said("pausa"))
+    task.cancel()
+    assert res.status == 422
+    assert "cambió" in (await res.json())["error"]
+    assert asked == []
+
+
+async def test_assistant_unknown_explains(aiohttp_client, tmp_path):
+    ask, _ = fake_asker({"actions": [act("unknown")], "reply": "Todavía no puedo apagar el proyector"})
+    client, ws = await assistant_client(aiohttp_client, tmp_path, ask)
+    task = projector_answers(ws, ROUTES, [])
+    res = await client.post("/proyector/api/assistant", json=said("apágalo"))
+    task.cancel()
+    assert res.status == 422
+    assert (await res.json())["error"] == "Todavía no puedo apagar el proyector"
+
+
+async def test_assistant_needs_key_and_known_projector(aiohttp_client, tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    client = await aiohttp_client(create_app(tmp_path / "keys.json"))
+    assert (await (await client.get("/proyector/version.json")).json())["assistant"] is False
+    assert (await client.post("/proyector/api/assistant", json=said("hola"))).status == 503
+    # Writing the key file is enough: no restart.
+    (tmp_path / "anthropic.key").write_text("sk-test\n")
+    assert (await (await client.get("/proyector/version.json")).json())["assistant"] is True
+    res = await client.post("/proyector/api/assistant", json={**said("hola"), "selected": "otro0000"})
+    assert res.status == 400
+    res = await client.post("/proyector/api/assistant", json=said("hola"))
+    assert res.status == 422  # projector not connected
