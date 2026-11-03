@@ -259,7 +259,12 @@ async function openScanner() {
   $('scanner').hidden = false;
   try {
     const [stream] = await Promise.all([
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }),
+      // Safari defaults to 640x480, too few pixels for a dense QR seen from
+      // across the room. `ideal` never fails; the camera picks what it can.
+      navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      }),
       loadJsQR(),
     ]);
     if ($('scanner').hidden) {
@@ -283,7 +288,9 @@ async function openScanner() {
 function scanFrames(video) {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const frameEl = document.querySelector('.scanner-frame');
   let last = 0;
+  let n = 0;
   const tick = (now) => {
     if (!scanStream) return;
     scanLoop = requestAnimationFrame(tick);
@@ -293,10 +300,14 @@ function scanFrames(video) {
     const w = video.videoWidth;
     const h = video.videoHeight;
     if (!w || !h) return;
-    const scale = Math.min(1, 640 / Math.max(w, h));
-    canvas.width = Math.round(w * scale);
-    canvas.height = Math.round(h * scale);
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Most reads look only inside the on-screen frame, at the camera's full
+    // resolution, so the QR keeps its detail. Every third read scans the whole
+    // picture, in case the QR is outside the frame.
+    const box = ++n % 3 === 0 ? { x: 0, y: 0, w, h } : frameBox(video, frameEl, w, h);
+    const scale = Math.min(1, (box.w === w ? 640 : 800) / Math.max(box.w, box.h));
+    canvas.width = Math.round(box.w * scale);
+    canvas.height = Math.round(box.h * scale);
+    ctx.drawImage(video, box.x, box.y, box.w, box.h, 0, 0, canvas.width, canvas.height);
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const code = window.jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
     if (!code || !code.data) return;
@@ -309,6 +320,17 @@ function scanFrames(video) {
     }
   };
   scanLoop = requestAnimationFrame(tick);
+}
+
+// The on-screen frame in video pixels. The video uses object-fit: cover and
+// the frame sits in the middle of the screen, so it maps to a centered square.
+function frameBox(video, frameEl, w, h) {
+  const r = video.getBoundingClientRect();
+  const f = frameEl.getBoundingClientRect();
+  const s = Math.max(r.width / w, r.height / h) || 1;
+  // A margin, so a QR that touches the border still reads.
+  const side = Math.round(Math.min(w, h, (f.width * 1.3) / s));
+  return { x: Math.round((w - side) / 2), y: Math.round((h - side) / 2), w: side, h: side };
 }
 
 function closeScanner() {
