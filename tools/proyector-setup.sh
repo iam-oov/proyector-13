@@ -93,6 +93,10 @@ die() { print -u2 "✕ $*"; exit 1; }
 ok() { print "✓ $*"; }
 todo() { print "• $*"; }
 
+# El receptor abre un WebSocket a este relé; el teléfono (la PWA) lo controla ahí,
+# desde cualquier red.
+RELAY_API=https://www.valdoh.com/proyector/api/p
+
 # Serial ya conectado para la IP (ip:puerto), o vacío.
 serial_for() {
   adb devices | awk -v ip="$1" 'index($1, ip":") == 1 && $2 == "device" { print $1; exit }'
@@ -269,6 +273,24 @@ adb_close() {
   else ok "ADB por red cerrado. Para volver a entrar hay que reactivarlo en el equipo."; fi
 }
 
+# ¿Llega el teléfono al receptor por www.valdoh.com? Su id sale del /health del
+# receptor en la red local; el relé contesta 200 solo si el receptor está conectado.
+relay_check() {
+  local h id code
+  h=$(curl -s -m 4 "http://$ip:8080/health") || h=''
+  id=$(print -r -- "$h" | sed -n 's/.*"id":"\([a-z0-9]*\)".*/\1/p')
+  if [[ -z $id ]]; then
+    todo "relé: el receptor no contesta en $ip:8080 (¿está abierto?)"
+    return
+  fi
+  code=$(curl -s -o /dev/null -w '%{http_code}' -m 8 "$RELAY_API/$id/health")
+  case $code in
+    200) ok "en línea por www.valdoh.com (id $id): el teléfono lo controla desde cualquier red" ;;
+    503) todo "relé: $id no está conectado a www.valdoh.com; revisa el internet del equipo y \`adb -s $S logcat -d | grep relay:\`" ;;
+    *) todo "relé: www.valdoh.com respondió ${code:-nada} (¿internet de la Mac?)" ;;
+  esac
+}
+
 inspect() {
   print "Equipo:   $(sh_ getprop ro.product.manufacturer) $(sh_ getprop ro.product.model) · Android $(sh_ getprop ro.build.version.release) · $(sh_ getprop ro.product.cpu.abi)"
   print "Conexión: $S"
@@ -294,6 +316,7 @@ inspect() {
       print -r -- "$perms" | grep -q "android.permission.$p: granted=true" && ok "permiso: $p" || todo "falta permiso: $p"
     done
     [[ $(sh_ appops get $APP GET_USAGE_STATS) == *allow* ]] && ok "permiso: uso de apps (orden del inicio)" || todo "falta permiso: uso de apps (orden del inicio)"
+    relay_check
   else
     todo "receptor NO instalado"
   fi

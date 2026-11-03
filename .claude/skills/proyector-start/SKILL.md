@@ -243,12 +243,22 @@ equipo se queda sin internet, el script regresa solo al DNS automático.
    en el Famifun alguien la escribió en Puerta de enlace y el equipo se quedó sin internet
    (Android avisa "DNS privado"; `dumpsys wifi | grep "Static configuration"` muestra el
    gateway). Sin IP fija la IP cambia en cada reinicio (la MAC Wi-Fi es aleatoria).
-2. **Vincular el teléfono**: una instalación nueva crea su propio código. En el proyector,
-   elegir "Vincular teléfono" y escanear el QR desde la app de control (o "Pegar código").
-   Si el teléfono no tiene la app: conectarlo por USB y
-   `cd apps/control && flutter build apk --release --dart-define-from-file=../../.env`, luego
-   `adb -s <serial-del-teléfono> install -r build/app/outputs/flutter-apk/app-release.apk`.
-3. Correr `inspect` otra vez y mostrar el resultado: debería salir todo con `✓`.
+   La IP fija solo hace falta para administrar el equipo por ADB (este script): el
+   teléfono lo controla por www.valdoh.com aunque la IP cambie.
+2. **Vincular el teléfono** (sirve igual en iPhone y Android; no se instala nada). Una
+   instalación nueva crea su propio código. En el proyector, elegir "Vincular teléfono": sale
+   un QR y, junto a él, 6 números. En el teléfono, una de estas:
+   - Apuntar la **cámara normal** al QR: es un link a `https://www.valdoh.com/proyector/#pair?…`
+     y el proyector se agrega solo.
+   - Abrir **www.valdoh.com/proyector**, tocar **Escanear QR** o **Tengo un código** y
+     escribir los 6 números (duran 10 minutos y sirven una vez).
+   La página pide el nombre del teléfono la primera vez. Para que el proyector siga a Spotify
+   con el teléfono guardado: en Ahora, conectar Spotify y tocar "Que el proyector siga a
+   Spotify aunque guardes el teléfono". La app de control Flutter (apps/control) ya no se usa.
+3. Correr `inspect` otra vez y mostrar el resultado: debería salir todo con `✓`, incluida la
+   línea `en línea por www.valdoh.com`. Si sale `relé: … no está conectado`, el receptor no
+   llega al relé: revisar el internet del equipo y `adb -s <serial> logcat -d | grep relay:`
+   (debe decir `relay: online as <id>`).
 4. Contarle al usuario qué trae el inicio (lista del paso 3) y que el trading se apaga con el
    primer botón de abajo si no le interesa.
 
