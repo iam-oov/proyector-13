@@ -636,3 +636,10 @@ body.has-mini #view-voice { min-height: calc(100dvh - var(--top) - var(--tabs-h)
 /* Ahora: Spotify as a row at the bottom. */
 #spotify-connect { margin-top: 18px; }
 #spotify-connect .row-text small { line-height: 1.3; }
+
+/* Guard: no screen answering, nothing to press. */
+.circle:disabled, .say-chips button:disabled { opacity: .4; }
+.round.send:disabled { opacity: .4; }
+#view-voice.locked .search-field { opacity: .5; }
+#voice-offline .btn { width: 100%; margin-top: 12px; }
+#voice-offline .btn + .btn { margin-top: 8px; }

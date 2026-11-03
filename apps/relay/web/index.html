@@ -111,6 +111,13 @@
         <button class="btn primary" type="button" id="standalone-copy"><svg><use href="#i-copy"/></svg>Copiar link</button>
       </div>
 
+      <!-- Guard: with the screen not answering, nothing here can be asked. -->
+      <div class="tile notice" id="voice-offline" hidden>
+        <div class="notice-row"><span class="dot"></span><p id="voice-offline-text"></p></div>
+        <button class="btn primary" type="button" data-action="scan" id="voice-offline-rescan" hidden>Escanear el QR otra vez</button>
+        <button class="btn soft" type="button" id="voice-offline-switch" hidden></button>
+      </div>
+
       <div class="said" id="voice-said" hidden>
         <span class="section-label">Dijiste</span>
         <p id="voice-said-text"></p>

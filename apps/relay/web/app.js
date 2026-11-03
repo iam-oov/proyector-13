@@ -507,6 +507,7 @@ async function refreshOthers() {
     }
   }));
   if (!$('sheet-screens').hidden) renderScreens();
+  renderVoice();
 }
 
 // ---------------------------------------------------------------------------
@@ -728,6 +729,7 @@ document.addEventListener('click', (e) => {
     view = 'tabs';
     setTab('voice');
   }
+  if (!connected()) return;
   if (assistantOn) ask(el.dataset.say);
   else search(el.dataset.say);
 });
@@ -829,10 +831,20 @@ function voiceFailed(title, detail) {
   renderVoice();
 }
 
+/// The guard: only a screen that answers takes orders. Before the first
+/// check it counts as not connected, so nothing is sent into the void.
+function connected(p = current()) {
+  return !!p && stateOf(p) === 'online';
+}
+
 async function ask(text) {
   const said = String(text || '').trim();
   const p = current();
   if (!said || !p || asking) return;
+  if (!connected(p)) {
+    renderVoice();
+    return;
+  }
   asking = true;
   saidText = said;
   steps = [];
@@ -896,7 +908,7 @@ function stopListening() {
 }
 
 function listen() {
-  if (asking || !assistantOn) return;
+  if (asking || !assistantOn || !connected()) return;
   if (recognizer) {
     recognizer.stop();
     return;
@@ -973,6 +985,11 @@ function listen() {
 
 $('assist-mic').addEventListener('click', listen);
 
+$('voice-offline-switch').addEventListener('click', () => {
+  const id = $('voice-offline-switch').dataset.id;
+  if (id) select(id);
+});
+
 $('standalone-copy').addEventListener('click', async () => {
   const p = current();
   if (!p) return;
@@ -1009,6 +1026,7 @@ function openHelp() {
     }
   }
   $('help-screens').hidden = !others.length;
+  for (const b of $('sheet-help').querySelectorAll('[data-say]')) b.disabled = !connected();
   openSheet('sheet-help');
 }
 
@@ -1222,6 +1240,7 @@ function render() {
   $('btn-back').hidden = !pushed;
   $('btn-help').hidden = !onVoice || !assistantOn;
   $('btn-voice').hidden = onVoice || pushed || !assistantOn;
+  $('btn-voice').disabled = !connected(p);
   $('tabs').hidden = !p || pushed;
   document.body.classList.toggle('no-tabs', !p || pushed);
   $('view-welcome').hidden = !!p;
@@ -1333,6 +1352,7 @@ function renderNow(p) {
   const logged = spotifyLoggedIn();
 
   $('now-offline').hidden = !checked || online;
+  for (const b of document.querySelectorAll('[data-action="voice"]')) b.disabled = !online;
   $('offline-rescan').hidden = st !== 'unauthorized';
   $('offline-text').textContent = st === 'unauthorized'
     ? `El código de ${p.name} cambió. En el proyector abre "Vincular teléfono" y escanea el QR otra vez.`
@@ -1513,12 +1533,27 @@ function renderVoice() {
   const thinking = voice === 'thinking';
   const answered = voice === 'result' || voice === 'error';
   const searchOnly = assistantKnown && !assistantOn;
+  const online = st === 'online';
+  // Not answering: say why (and offer a screen that does), lock the rest.
+  const waiting = !checked && st === 'unknown';
   $('view-voice').dataset.state = searchOnly ? 'search' : voice;
+  $('view-voice').classList.toggle('locked', !online);
+  $('voice-offline').hidden = online || waiting;
+  $('voice-offline-text').textContent = st === 'unauthorized'
+    ? `El código de ${p.name} cambió. En el proyector abre "Vincular teléfono" y escanea el QR otra vez.`
+    : `${p.name} no está conectado. Revisa que esté prendido y con internet; esto se actualiza solo.`;
+  $('voice-offline-rescan').hidden = st !== 'unauthorized';
+  const other = store.projectors.find((x) => x.id !== p.id && stateOf(x) === 'online');
+  $('voice-offline-switch').hidden = !other;
+  if (other) {
+    $('voice-offline-switch').dataset.id = other.id;
+    $('voice-offline-switch').textContent = `Usar ${other.name}, que sí está conectada`;
+  }
 
   $('voice-standalone').hidden = !voiceBroken || !assistantOn;
   const mic = $('assist-mic');
   mic.hidden = searchOnly;
-  mic.disabled = !assistantOn || thinking || voiceBroken;
+  mic.disabled = !assistantOn || thinking || voiceBroken || !online;
   mic.classList.toggle('listening', listening);
   mic.setAttribute('aria-label', listening ? 'Terminar' : 'Hablar');
   $('icon-mic').toggleAttribute('hidden', listening);
@@ -1530,6 +1565,8 @@ function renderVoice() {
   if (searchOnly) {
     title = 'Busca un video';
     sub = `Escribe qué quieres ver y toca un resultado para mandarlo a ${p.name}.`;
+  } else if (!online && !listening && !thinking) {
+    title = waiting ? `Conectando con ${p.name}…` : 'Sin conexión con la pantalla';
   } else if (listening) {
     title = 'Te escucho…';
     sub = saidText ? `"${saidText}"` : 'Toca el botón cuando termines';
@@ -1568,7 +1605,7 @@ function renderVoice() {
     }
   }
 
-  $('voice-examples').hidden = !assistantOn || voice !== 'idle' || voiceBroken;
+  $('voice-examples').hidden = !assistantOn || voice !== 'idle' || voiceBroken || !online;
   const examples = sayExamples(p);
   const ck = examples.join('|');
   if (ck !== chipsKey) {
@@ -1585,6 +1622,8 @@ function renderVoice() {
   }
 
   $('search-input').placeholder = searchOnly ? 'Canción o video' : listening ? 'Te escucho…' : 'O escríbelo aquí';
+  $('search-input').disabled = asking || !online;
+  $('search-send').disabled = asking || !online;
 
   // Plain search results (no assistant). The assistant's other videos are
   // behind "No es el video" instead.
@@ -1765,6 +1804,7 @@ if (location.hash.startsWith('#pair?')) {
 
 render();
 refresh();
+refreshOthers();
 renderVersion();
 checkVersion();
 spotifyCallback().then((wasCallback) => {
